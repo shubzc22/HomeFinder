@@ -48,19 +48,18 @@
 </head>
 <body>
 
-<div class="notice">Joining meeting automatically...</div>
-<div id="jitsi-container"></div>
 
+<div id="jitsi-container"></div>
+  <center>
 <!-- Share popup (hidden by default) -->
 <div id="sharePopup" class="share-popup" style="display:none;" aria-live="polite">
   <div class="link" id="shareLink" title="Shareable link">—</div>
   <div style="display:flex;gap:6px;align-items:center;">
     <button id="copyBtn" class="btn-copy">Copy link</button>
-    <button id="closeBtn" class="btn-close">Close</button>
     <div id="copiedHint" class="copied-hint" style="display:none">Copied!</div>
   </div>
 </div>
-
+</center>
 <script>
 /*
   Moderator logic:
@@ -206,3 +205,4 @@ api.addEventListener("videoConferenceJoined", async () => {
 
 </body>
 </html>
+
