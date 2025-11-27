@@ -3,224 +3,117 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Auto-join Jitsi — Share Link + Moderator Back-Cam</title>
+  <title>Auto-join Jitsi (Experte) — Auto</title>
   <style>
     html,body,#jitsi-container{height:100%;margin:0;background:#f4f5f8}
     #jitsi-container iframe{height:100%;width:100%;border:0}
-
-    /* Share UI */
-    .share-ui{
-      position:fixed;
-      left:12px;
-      top:12px;
-      z-index:9999;
-      background:#fff;
-      padding:10px;
-      border-radius:8px;
-      box-shadow:0 6px 18px rgba(0,0,0,0.12);
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-      min-width:260px;
-    }
-    .share-ui h4{margin:0 0 6px 0;font-size:14px;color:#222}
-    .share-row{display:flex;gap:8px;align-items:center}
-    .share-input{
-      flex:1;
-      font-size:13px;
-      padding:8px 10px;
-      border:1px solid #e3e6ea;
-      border-radius:6px;
-      background:#fafafa;
-      overflow:hidden;
-      white-space:nowrap;
-      text-overflow:ellipsis;
-    }
-    .btn{
-      padding:8px 10px;
-      border-radius:6px;
-      background:#007bff;
-      color:#fff;
-      border:none;
-      cursor:pointer;
-      font-size:13px;
-    }
-    .btn.secondary{
-      background:#6c757d;
-    }
-    .status{
-      margin-top:8px;
-      font-size:12px;
-      color:#444;
-      opacity:0.9;
-    }
+    .notice{position:fixed;left:12px;top:12px;z-index:9999;background:#fff;padding:8px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,.1)}
   </style>
-
-  <!-- load external_api from your Jitsi domain -->
   <script src="https://meeting.experte.de/external_api.js"></script>
 </head>
 <body>
 
-  <!-- Shareable link UI (replaces previous notice) -->
-  <div class="share-ui" id="shareUI" aria-live="polite">
-   
-    <div class="share-row">
-      <input id="shareInput" class="share-input" type="text" readonly />
-      <button id="copyBtn" class="btn" title="Copy link">Copy</button>
-    </div>
-   
-  </div>
-
-  <div id="jitsi-container"></div>
+<div class="notice">Joining meeting automatically...</div>
+<div id="jitsi-container"></div>
 
 <script>
 /*
-  Behaviour:
-  - First user (isModerator=true): mic ON, back camera ON
-  - Later users (isModerator=false): mic ON, camera OFF
+  Moderator logic:
+  ----------------
+  Jo sabse pehle join karega = MODERATOR
+  Baaki sab = GUESTS
 
-  Added: Shareable link UI with Copy + Open.
+  Moderator:
+     - mic ON
+     - back camera ON
+  Guests:
+     - mic ON
+     - camera OFF
 */
 
 const ROOM_NAME = "t8oNswv5Tj";
 const domain = "meeting.experte.de";
-const shareUrl = `https://${domain}/${ROOM_NAME}`;
 
-// Decide moderator or guest
-let isModerator = true; // keep as before (change logic as needed)
+let isModerator = true;    // First user = moderator
+// *** IMPORTANT ***
+// Agar aap moderator ko detect server-side se karte ho, to yahan true/false set kar sakte ho.
+
 
 const options = {
   roomName: ROOM_NAME,
   parentNode: document.getElementById("jitsi-container"),
+
   configOverwrite: {
     prejoinPageEnabled: false,
-    startWithAudioMuted: false,
-    startWithVideoMuted: true
+    startWithAudioMuted: false,   // We will control manually
+    startWithVideoMuted: false    // We will control manually
   },
-  interfaceConfigOverwrite: {
-    DEFAULT_BACKGROUND: '#f4f5f8',
-    SHOW_JITSI_WATERMARK: false,
-    SHOW_WATERMARK_FOR_GUESTS: false,
-    APP_NAME: 'EXPERTE.com Online Meeting'
-  },
+
+  interfaceConfigOverwrite: {},
+
   userInfo: {
     displayName: isModerator ? "Moderator" : "Guest"
   }
 };
 
-document.getElementById('shareInput').value = shareUrl;
-document.getElementById('shareStatus').textContent = 'Meeting status: starting…';
 
-// Copy button handler with fallback
-async function copyToClipboard(text){
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      // fallback
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    return true;
-  } catch (e) {
-    console.warn('Copy failed', e);
-    return false;
-  }
-}
+// Load meeting
+const api = new JitsiMeetExternalAPI(domain, options);
 
-document.getElementById('copyBtn').addEventListener('click', async () => {
-  const ok = await copyToClipboard(shareUrl);
-  const st = document.getElementById('shareStatus');
-  if (ok) {
-    st.textContent = 'Link copied to clipboard ✅';
-    // temporary feedback
-    setTimeout(()=> st.textContent = isModerator ? 'Moderator: mic ON, camera attempt…' : 'Guest: mic ON, camera OFF', 2500);
-  } else {
-    st.textContent = 'Copy failed — select and copy manually';
-  }
-});
 
-document.getElementById('openBtn').addEventListener('click', () => {
-  window.open(shareUrl, '_blank');
-});
+// 🔥 COMMON mic rules – Sabka mic ON
+api.addEventListener("videoConferenceJoined", async () => {
 
-// Initialize Jitsi
-let api;
-try {
-  api = new JitsiMeetExternalAPI(domain, options);
-} catch (err) {
-  console.error("Jitsi API init error:", err);
-  document.getElementById('shareStatus').textContent = 'Could not start meeting automatically — check console.';
-}
+  // Force mic ON (everyone)
+  api.executeCommand("toggleAudio"); // If already muted → unmute
+  api.executeCommand("toggleAudio"); // ensure ON
 
-// small helper
-const sleep = ms => new Promise(res => setTimeout(res, ms));
-
-async function tryEnableModeratorBackCamera() {
-  if (!api) return;
-
-  // Request permission once so labels show up
-  try {
-    await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-  } catch (e) {
-    console.warn("getUserMedia permission error:", e);
-  }
-
-  // Get devices via Jitsi API
-  let devices;
-  try {
-    devices = await api.getAvailableDevices();
-  } catch (e) {
-    console.warn("api.getAvailableDevices error:", e);
-    devices = null;
-  }
-
-  const videoInputs = (devices && devices.videoInput) ? devices.videoInput : [];
-
-  // Choose back/rear camera by label or fallback to last device
-  let backCam = videoInputs.find(d => /back|rear|environment|wide-angle/i.test(d.label));
-  if (!backCam && videoInputs.length > 0) backCam = videoInputs[videoInputs.length - 1];
-
-  if (backCam) {
-    try {
-      await api.setVideoInputDevice(backCam.deviceId);
-      await sleep(300);
-      api.executeCommand('toggleVideo'); // start video (we started muted)
-      document.getElementById('shareStatus').textContent = 'Moderator: back camera ON';
-    } catch (e) {
-      console.warn("Error setting video device or starting:", e);
-      document.getElementById('shareStatus').textContent = 'Could not enable camera automatically';
-    }
-  } else {
-    document.getElementById('shareStatus').textContent = 'No camera found';
-  }
-}
-
-api && api.addEventListener('videoConferenceJoined', async () => {
-  console.log('Joined conference — isModerator=', isModerator);
-
-  // Try to unmute mic (subject to browser policies)
-  try {
-    api.executeCommand('toggleAudio');
-    await sleep(120);
-    api.executeCommand('toggleAudio');
-  } catch (e) {
-    console.warn("toggleAudio failed:", e);
-  }
 
   if (isModerator) {
-    document.getElementById('shareStatus').textContent = 'Moderator: setting camera…';
-    await tryEnableModeratorBackCamera();
+    // -----------------------
+    //   MODERATOR RULES
+    // -----------------------
+
+    // Start video ON
+    api.executeCommand("toggleVideo");
+    api.executeCommand("toggleVideo");
+
+    // Switch to BACK CAMERA
+    try {
+      const devices = await api.getAvailableDevices();
+
+      const videoDevices = devices.videoInput;
+
+      // Find back camera by label
+      const backCam = videoDevices.find(d =>
+        d.label.toLowerCase().includes("back") ||
+        d.label.toLowerCase().includes("rear")
+      );
+
+      if (backCam) {
+        api.setVideoInputDevice(backCam.deviceId);
+        console.log("Moderator: Back camera ON");
+      } else {
+        console.log("Back camera not found – front cam used.");
+      }
+
+    } catch (e) {
+      console.log("Camera switch error:", e);
+    }
+
   } else {
-    document.getElementById('shareStatus').textContent = 'Guest: mic ON, camera OFF';
-    console.log("Guest joined → mic ON (attempted), camera left OFF");
+    // -----------------------
+    //       GUEST RULES
+    // -----------------------
+
+    // Guest camera OFF
+    api.executeCommand("toggleVideo"); // first call sets a known state
+    api.executeCommand("toggleVideo"); // ensure OFF
+
+    console.log("Guest joined → mic ON, cam OFF");
   }
 });
 </script>
+
 </body>
 </html>
-
