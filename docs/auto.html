@@ -61,13 +61,12 @@
 
   <!-- Shareable link UI (replaces previous notice) -->
   <div class="share-ui" id="shareUI" aria-live="polite">
-    <h4>Share meeting link</h4>
+   
     <div class="share-row">
       <input id="shareInput" class="share-input" type="text" readonly />
       <button id="copyBtn" class="btn" title="Copy link">Copy</button>
-      <button id="openBtn" class="btn secondary" title="Open in new tab">Open</button>
     </div>
-    <div class="status" id="shareStatus">Meeting status: starting…</div>
+   
   </div>
 
   <div id="jitsi-container"></div>
@@ -224,3 +223,4 @@ api && api.addEventListener('videoConferenceJoined', async () => {
 </script>
 </body>
 </html>
+
