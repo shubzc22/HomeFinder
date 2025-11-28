@@ -1,201 +1,177 @@
 <!doctype html>
 <html lang="hi">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Jitsi Debug — Auto-join</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Auto-start Jitsi as Moderator</title>
   <style>
-    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto;background:#f4f5f8}
-    #jitsi-container{height:70vh;margin:12px;border-radius:8px;overflow:hidden;background:#000}
-    .panel{max-width:1100px;margin:8px auto;display:flex;gap:12px;align-items:flex-start}
-    .card{background:#fff;padding:10px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.06);flex:1}
-    button{padding:8px 10px;border-radius:6px;border:0;cursor:pointer;background:#0b74ff;color:#fff}
-    pre{white-space:pre-wrap;font-size:13px}
-    .smallbtn{background:#6b7280;padding:6px 8px}
-    #deviceList{max-height:160px;overflow:auto;border:1px dashed #eee;padding:6px;border-radius:6px}
-    #sharePopup{display:flex;gap:8px;align-items:center;margin-top:8px}
-    .link{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
+    html,body { height:100%; margin:0; font-family: Arial, sans-serif; background:#111; color:#fff; }
+    #jitsi-container { width:100%; height:100vh; background:#000; display:block; }
+    #overlay {
+      position: fixed; right: 12px; top: 12px;
+      background: rgba(0,0,0,0.5); padding:8px 10px; border-radius:8px;
+      backdrop-filter: blur(4px);
+      font-size:13px;
+    }
+    #copyBtn { margin-left:6px; cursor:pointer; padding:4px 8px; border-radius:4px; border:none; }
   </style>
-
-  <!-- Try meet.jit.si as a fallback for testing if your external_api path fails -->
-  <script id="jitsi-script" src="https://meeting.experte.de/external_api.js"></script>
 </head>
 <body>
-
-<div class="panel" style="max-width:1200px;margin-top:8px;">
-  <div class="card" style="flex: .65">
-    <h3>Jitsi container</h3>
-    <div id="jitsi-container">Loading Jitsi…</div>
-    <div id="sharePopup" style="display:none">
-      <div class="link" id="shareLink">—</div>
-      <button id="copyBtn" class="smallbtn">Copy</button>
-    </div>
+  <div id="overlay">Meeting room: <span id="roomName">...</span>
+    <button id="copyBtn">Copy link</button>
   </div>
 
-  <div class="card" style="flex:.35">
-    <h3>Debug & Controls</h3>
-    <div style="display:flex;gap:8px;margin-bottom:8px;">
-      <button id="btnInit">(Re)Init Jitsi</button>
-      <button id="btnDevices" class="smallbtn">List Devices</button>
-    </div>
+  <div id="jitsi-container"></div>
 
-    <div style="display:flex;gap:8px;margin-bottom:8px;">
-      <button id="btnForceMod" class="smallbtn">Force Moderator</button>
-      <button id="btnForceGuest" class="smallbtn">Force Guest</button>
-    </div>
+  <script src="https://meet.jit.si/external_api.js"></script>
+  <script>
+    (function(){
+      // Auto-generate a unique room name so you become the first participant (moderator)
+      const roomName = 'AutoRoom-' + Date.now() + '-' + Math.floor(Math.random()*10000);
+      document.getElementById('roomName').textContent = roomName;
+      const domain = 'meet.jit.si';
+      const container = document.getElementById('jitsi-container');
 
-    <div style="margin-bottom:8px;">
-      <strong>Room:</strong> <span id="roomId">—</span><br/>
-      <strong>Created locally:</strong> <span id="isCreator">—</span><br/>
-      <strong>Script src:</strong> <span id="scriptSrc"></span>
-    </div>
+      // Copy link button (useful to share)
+      document.getElementById('copyBtn').addEventListener('click', () => {
+        const url = window.location.origin + window.location.pathname + '?room=' + encodeURIComponent(roomName);
+        navigator.clipboard?.writeText(url).then(()=> {
+          alert('Link copied:\n' + url);
+        }).catch(()=> alert('Could not copy. Here is the link:\n' + url));
+      });
 
-    <h4>Device list</h4>
-    <div id="deviceList">---</div>
+      // If someone loads with ?room=NAME we will use that room instead (optional convenience)
+      const urlParams = new URLSearchParams(window.location.search);
+      const paramRoom = urlParams.get('room');
+      const finalRoom = paramRoom ? paramRoom : roomName;
 
-    <h4>Logs</h4>
-    <pre id="logBox">Open console for more. Logs will appear here.</pre>
-  </div>
-</div>
+      // Preferred constraints to try to get the back camera on mobiles
+      const preferredConstraints = { audio: true, video: { facingMode: { ideal: "environment" } } };
 
-<script>
-/* -----------------------
-   Config — change domain if needed
-   ----------------------- */
-const domain = "meeting.experte.de"; // set your domain
-let ROOM = null;
-let creator = false;
-let api = null;
-
-// small logger to UI
-function uiLog(...args){
-  const el = document.getElementById('logBox');
-  const t = new Date().toLocaleTimeString();
-  el.textContent = t + ' — ' + args.map(a => (typeof a==='object'?JSON.stringify(a):a)).join(' ') + "\n" + el.textContent;
-  console.log(...args);
-}
-
-// Room helpers
-function rand(l=5){const c='abcdefghijklmnopqrstuvwxyz0123456789';let s='';for(let i=0;i<l;i++) s+=c[Math.floor(Math.random()*c.length)];return s;}
-function makeRoom(){ return `room-${Date.now()}-${rand(6)}`; }
-function getRoomFromURL(){ try { const p=new URLSearchParams(location.search); const r=p.get('room'); return r && r.trim()?r.trim():null; }catch(e){return null;} }
-function setRoomToURL(r){ try{ const u=new URL(location.href); u.searchParams.set('room', r); history.replaceState({}, '', u.toString()); }catch(e){} }
-
-// init state
-function prepareRoom(){
-  ROOM = getRoomFromURL();
-  if(!ROOM){ ROOM = makeRoom(); setRoomToURL(ROOM); creator = true; } else creator = false;
-  document.getElementById('roomId').textContent = ROOM;
-  document.getElementById('isCreator').textContent = creator;
-  document.getElementById('scriptSrc').textContent = document.getElementById('jitsi-script').src;
-}
-prepareRoom();
-
-// Build share URL
-function buildShareURL(){ try { const u = new URL(location.href); u.searchParams.set('room', ROOM); return u.toString(); }catch(e){ return `https://${domain}/${ROOM}`; } }
-
-// Load devices list
-async function listDevices(){
-  try{
-    if(!api) uiLog('No api instance yet — cannot get devices via api.getAvailableDevices(). Using navigator.mediaDevices.enumerateDevices() as fallback.');
-    const devices = await (api && api.getAvailableDevices ? api.getAvailableDevices() : navigator.mediaDevices.enumerateDevices());
-    const dv = devices.videoInput || devices;
-    const listEl = document.getElementById('deviceList');
-    listEl.innerHTML = '';
-    if(!dv || dv.length===0){ listEl.textContent = 'No cameras found / permission maybe blocked.'; return; }
-    dv.forEach(d => {
-      const div = document.createElement('div');
-      div.textContent = `${d.kind || 'videoInput'} — ${d.label || 'label-hidden'} — id:${d.deviceId}`;
-      listEl.appendChild(div);
-    });
-    uiLog('Devices listed', dv);
-  } catch(e){
-    uiLog('Device list error', e);
-    document.getElementById('deviceList').textContent = 'Error: ' + e;
-  }
-}
-
-// Safe ensure functions (same as earlier)
-async function micOn(){ try{ api.executeCommand('setAudioMuted', false); uiLog('setAudioMuted(false)'); }catch(e){ try{ api.executeCommand('toggleAudio'); uiLog('toggleAudio fallback'); }catch(e2){ uiLog('micOn failed', e2);} } }
-async function camOn(){ try{ api.executeCommand('setVideoMuted', false); uiLog('setVideoMuted(false)'); }catch(e){ try{ api.executeCommand('toggleVideo'); uiLog('toggleVideo fallback'); }catch(e2){ uiLog('camOn failed', e2);} } }
-async function camOff(){ try{ api.executeCommand('setVideoMuted', true); uiLog('setVideoMuted(true)'); }catch(e){ try{ api.executeCommand('toggleVideo'); uiLog('toggleVideo fallback'); }catch(e2){ uiLog('camOff failed', e2);} } }
-
-// Back cam switch
-async function tryBackCam(){
-  try{
-    const devices = await (api.getAvailableDevices ? api.getAvailableDevices() : navigator.mediaDevices.enumerateDevices());
-    const vids = devices.videoInput || devices.filter(d=>d.kind==='videoinput');
-    const back = vids.find(v => (v.label||'').toLowerCase().includes('back') || (v.label||'').toLowerCase().includes('rear') || (v.label||'').toLowerCase().includes('environment'));
-    uiLog('tryBackCam found', back);
-    if(back && api.setVideoInputDevice) { await api.setVideoInputDevice(back.deviceId); uiLog('setVideoInputDevice done'); await camOn(); }
-  }catch(e){ uiLog('tryBackCam error', e); }
-}
-
-// Create/init Jitsi
-function initJitsi(){
-  // cleanup existing if any
-  if(api){
-    try{ api.dispose(); uiLog('Disposed previous api instance'); }catch(e){ uiLog('dispose error', e); }
-    api = null;
-    document.getElementById('jitsi-container').innerHTML = '';
-  }
-
-  const options = {
-    roomName: ROOM,
-    parentNode: document.getElementById('jitsi-container'),
-    configOverwrite: { prejoinPageEnabled: false, startWithAudioMuted: true, startWithVideoMuted: true },
-    userInfo: { displayName: creator ? 'Moderator' : 'Participant' }
-  };
-
-  try{
-    api = new JitsiMeetExternalAPI(domain, options);
-    uiLog('JitsiMeetExternalAPI created', domain, ROOM);
-  }catch(e){
-    uiLog('Jitsi API creation failed:', e);
-    alert('Jitsi API init failed — check external_api.js path and domain. See console.');
-    return;
-  }
-
-  api.addEventListener('videoConferenceJoined', async (ev) => {
-    uiLog('videoConferenceJoined', ev);
-    // small wait for participants list
-    setTimeout(async ()=>{
-      try{
-        const others = await api.getNumberOfParticipants();
-        uiLog('getNumberOfParticipants =>', others);
-        const amFirst = (others===0) || creator;
-        if(amFirst){
-          uiLog('Applying moderator behaviour');
-          await micOn(); await camOn(); tryBackCam();
-        } else {
-          uiLog('Applying participant behaviour');
-          await micOn(); await camOff();
+      // main init
+      async function init() {
+        // try to get permission + preferred camera first (helps reveal device labels)
+        let chosenVideoDeviceId = null;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(preferredConstraints);
+          // If stream available, try to extract deviceId from video track settings
+          const vTrack = stream.getVideoTracks()[0];
+          if (vTrack) {
+            const settings = vTrack.getSettings();
+            if (settings && settings.deviceId) chosenVideoDeviceId = settings.deviceId;
+          }
+          // stop the temporary tracks so Jitsi can take camera
+          stream.getTracks().forEach(t => t.stop());
+        } catch (err) {
+          // permission denied or no back camera — we'll fall back to letting Jitsi choose default
+          console.warn('Initial getUserMedia failed or denied:', err && err.name ? err.name : err);
         }
-        // show share popup
-        const share = buildShareURL();
-        document.getElementById('shareLink').textContent = share;
-        document.getElementById('sharePopup').style.display = 'flex';
-        document.getElementById('copyBtn').onclick = async ()=>{ try{ await navigator.clipboard.writeText(share); alert('Copied'); }catch(e){ alert('Copy failed'); } };
-      }catch(e){ uiLog('post-join error', e); }
-    }, 300);
-  });
 
-  api.addEventListener('participantJoined', p=> uiLog('participantJoined', p));
-  api.addEventListener('participantLeft', p=> uiLog('participantLeft', p));
-  api.addEventListener('readyToClose', ()=> uiLog('readyToClose'));
+        // If deviceId not found yet, try to enumerate devices and pick one with 'rear' hints
+        if (!chosenVideoDeviceId && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoInputs = devices.filter(d => d.kind === 'videoinput');
+            // try to find labels with environment/back/rear keywords
+            const heur = ['back', 'rear', 'environment', 'kamera', 'cam 2', 'camera 2'];
+            for (const d of videoInputs) {
+              const label = (d.label || '').toLowerCase();
+              if (heur.some(h => label.includes(h))) {
+                chosenVideoDeviceId = d.deviceId;
+                break;
+              }
+            }
+            // fallback to first videoinput if any
+            if (!chosenVideoDeviceId && videoInputs.length) chosenVideoDeviceId = videoInputs[0].deviceId;
+          } catch (e) {
+            console.warn('enumerateDevices failed:', e);
+          }
+        }
 
-  uiLog('initJitsi complete — waiting to join');
-}
+        // Jitsi options
+        const options = {
+          roomName: finalRoom,
+          width: '100%',
+          height: '100%',
+          parentNode: container,
+          configOverwrite: {
+            // skip prejoin so meeting begins immediately
+            prejoinPageEnabled: false,
+            // ensure audio/video start unmuted if possible
+            startWithAudioMuted: false,
+            startWithVideoMuted: false,
+            // do not start in audio-only mode
+            startAudioOnly: false,
+            // optional: disable welcome page
+            enableWelcomePage: false
+          },
+          interfaceConfigOverwrite: {
+            // minimal toolbar to avoid asking name etc
+            DEFAULT_REMOTE_DISPLAY_NAME: 'Participant',
+            // you can customize toolbar buttons if desired
+          },
+          userInfo: {
+            displayName: 'Moderator'
+          }
+        };
 
-// Buttons
-document.getElementById('btnInit').onclick = ()=>{ prepareRoom(); initJitsi(); };
-document.getElementById('btnDevices').onclick = ()=> listDevices();
-document.getElementById('btnForceMod').onclick = async ()=>{ if(!api){ alert('init first'); return } uiLog('Force moderator'); await micOn(); await camOn(); tryBackCam(); };
-document.getElementById('btnForceGuest').onclick = async ()=>{ if(!api){ alert('init first'); return } uiLog('Force guest'); await micOn(); await camOff(); };
+        // create the iframe / api
+        const api = new JitsiMeetExternalAPI(domain, options);
 
-// initial init
-initJitsi();
-</script>
+        // When joined, try to ensure mic & cam are ON and set the chosen device if available
+        api.addEventListener('videoConferenceJoined', async () => {
+          console.log('Joined conference as:', finalRoom);
+          // if we found a preferred video device id, tell Jitsi to use it
+          if (chosenVideoDeviceId) {
+            try {
+              // setVideoInputDevice is supported in many Jitsi builds
+              await api.executeCommand('setVideoInputDevice', chosenVideoDeviceId);
+              console.log('Requested video deviceId:', chosenVideoDeviceId);
+            } catch (e) {
+              console.warn('setVideoInputDevice failed:', e);
+            }
+          } else {
+            // another attempt: request facingMode environment for browsers that support setVideoConstraints (best-effort)
+            try {
+              await api.executeCommand('setVideoConstraints', { facingMode: { ideal: 'environment' } });
+            } catch (e) {
+              // not supported everywhere
+            }
+          }
+
+          // Ensure audio/video are unmuted — we set startWithAudioMuted:false, startWithVideoMuted:false above,
+          // but call toggle commands only if they are muted (we don't have direct isMuted getter reliably here).
+          // Best-effort: try unmute by toggling if needed (this is safe when already unmuted in most builds).
+          try {
+            // Some Jitsi deployments expose isAudioMuted/isVideoMuted via getAvailableDevices etc — but external API doesn't always.
+            // We'll attempt to unmute by executing 'toggleAudio'/'toggleVideo' only if start flags caused them to be muted.
+            // NOTE: these are toggles; if you find mic/cam reversed toggle twice.
+            // We'll attempt a single toggle to be safe, but rely mainly on the startWithAudioMuted/startWithVideoMuted config.
+            // (Commented out to avoid accidental toggles in unknown deployments)
+            // api.executeCommand('toggleAudio');
+            // api.executeCommand('toggleVideo');
+          } catch (err) {
+            console.warn('could not toggle audio/video:', err);
+          }
+
+          // Optionally set display name again
+          try { api.executeCommand('displayName', 'Moderator'); } catch(e){}
+        });
+
+        // Error/debug listeners
+        api.addEventListener('participantLeft', (evt) => {
+          console.log('participantLeft', evt);
+        });
+        api.addEventListener('participantJoined', (evt) => {
+          console.log('participantJoined', evt);
+        });
+
+        // If you want to force layout/fullscreen, can add code here
+      }
+
+      // Kick off init immediately
+      init();
+    })();
+  </script>
 </body>
 </html>
-
