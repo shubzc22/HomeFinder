@@ -31,15 +31,13 @@
       overflow:hidden;
       text-overflow:ellipsis;
       white-space:nowrap;
-      max-width:420px;
+      max-width:520px;
       font-size:13px;
     }
     .share-popup button { padding:6px 10px; border-radius:6px; border:0; cursor:pointer }
     .btn-copy { background:#0b74ff; color:#fff }
-    .btn-switch { background:#2dbe60; color:#fff } /* Switch Cam button */
     .btn-close { background:transparent; border:1px solid #e6e9ee }
     .copied-hint { font-size:12px; color:green; margin-left:6px }
-    .switch-hint { font-size:12px; color:#333; margin-left:6px }
 
     @media (max-width:520px){
       .share-popup { flex-direction:column; align-items:flex-start; gap:6px }
@@ -50,6 +48,7 @@
 </head>
 <body>
 
+
 <div id="jitsi-container"></div>
   <center>
 <!-- Share popup (hidden by default) -->
@@ -57,9 +56,7 @@
   <div class="link" id="shareLink" title="Shareable link">—</div>
   <div style="display:flex;gap:6px;align-items:center;">
     <button id="copyBtn" class="btn-copy">Copy link</button>
-    <button id="switchCamBtn" class="btn-switch">Switch Cam</button>
     <div id="copiedHint" class="copied-hint" style="display:none">Copied!</div>
-    <div id="switchHint" class="switch-hint" style="display:none">Switching...</div>
   </div>
 </div>
 </center>
@@ -114,8 +111,6 @@ function showSharePopup(link){
   const linkEl = document.getElementById('shareLink');
   const copyBtn = document.getElementById('copyBtn');
   const copiedHint = document.getElementById('copiedHint');
-  const switchBtn = document.getElementById('switchCamBtn');
-  const switchHint = document.getElementById('switchHint');
 
   linkEl.textContent = link;
   linkEl.setAttribute('title', link);
@@ -135,134 +130,8 @@ function showSharePopup(link){
       textarea.remove();
     }
   };
-
-  // Switch cam button click
-  switchBtn.onclick = async () => {
-    // show hint
-    switchHint.textContent = 'Trying to activate back camera...';
-    switchHint.style.display = 'inline-block';
-    try {
-      const ok = await switchToBackCamera({promptIfNeeded: true, setActive: true});
-      if (ok) {
-        switchHint.textContent = 'Back camera activated ✓';
-        setTimeout(()=> switchHint.style.display = 'none', 1800);
-      } else {
-        switchHint.textContent = 'Back camera not found';
-        setTimeout(()=> switchHint.style.display = 'none', 1800);
-      }
-    } catch(err) {
-      console.warn('Switch cam error', err);
-      switchHint.textContent = 'Switch failed';
-      setTimeout(()=> switchHint.style.display = 'none', 1800);
-    }
-  };
 }
 
-
-// Robust back-camera finder + setter
-async function getDevicesFromAPIorNavigator() {
-  // Try Jitsi API first
-  try {
-    if (api && typeof api.getAvailableDevices === 'function') {
-      const dev = await api.getAvailableDevices();
-      // Normalize to MediaDeviceInfo-like objects
-      const videoDevices = (dev && (dev.videoInput || []));
-      if (videoDevices && videoDevices.length) return videoDevices.map(d => ({
-        deviceId: d.deviceId || d.deviceId,
-        label: d.label || ''
-      }));
-    }
-  } catch(e){
-    console.log('api.getAvailableDevices failed', e);
-  }
-
-  // Fallback to navigator.mediaDevices.enumerateDevices
-  if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-    try {
-      const list = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = list.filter(d => d.kind === 'videoinput');
-      if (videoDevices.length) return videoDevices.map(d => ({ deviceId: d.deviceId, label: d.label || '' }));
-    } catch(e){
-      console.log('enumerateDevices failed', e);
-    }
-  }
-
-  return [];
-}
-
-async function tryGetUserMediaForLabels() {
-  // If device labels are empty, we may need permission to get labels.
-  // Try to request minimal camera access quietly to unlock labels.
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    // close tracks quickly
-    stream.getTracks().forEach(t => t.stop());
-    return true;
-  } catch(e){
-    console.log('getUserMedia permission denied or failed:', e);
-    return false;
-  }
-}
-
-function looksLikeBackLabel(label){
-  if(!label) return false;
-  label = label.toLowerCase();
-  return label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('wide') || label.includes('ultrawide') || label.includes('main');
-}
-
-async function switchToBackCamera({promptIfNeeded=true, setActive=true} = {}) {
-  // Try a few attempts to find a back camera
-  for (let attempt = 0; attempt < 3; attempt++) {
-    let devices = await getDevicesFromAPIorNavigator();
-
-    // If no labels present, try prompting for permission once (to reveal labels)
-    const hasAnyLabel = devices.some(d => d.label && d.label.length>0);
-    if (!hasAnyLabel && promptIfNeeded && attempt === 0) {
-      await tryGetUserMediaForLabels();
-      devices = await getDevicesFromAPIorNavigator();
-    }
-
-    // Find best match for back camera
-    let back = devices.find(d => looksLikeBackLabel(d.label));
-    if (!back && devices.length > 1) {
-      // heuristic: pick the last device in list (often rear on mobile)
-      back = devices[devices.length - 1];
-    }
-
-    if (back) {
-      try {
-        // If api provides setVideoInputDevice use it
-        if (api && typeof api.setVideoInputDevice === 'function') {
-          await api.setVideoInputDevice(back.deviceId);
-          // toggle video to force refresh
-          try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); } catch(e){}
-        } else {
-          // fallback: try apply constraints via getUserMedia switch (best-effort)
-          try {
-            const constraints = { video: { deviceId: { exact: back.deviceId } } };
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            // If Jitsi is using the camera this might not replace it; close stream
-            stream.getTracks().forEach(t => t.stop());
-          } catch(e){
-            console.warn('Fallback getUserMedia with deviceId failed', e);
-          }
-        }
-
-        console.log('Switched to back camera:', back.label || back.deviceId);
-        return true;
-      } catch(e) {
-        console.warn('setVideoInputDevice failed', e);
-        return false;
-      }
-    }
-
-    // small delay before retry
-    await new Promise(r => setTimeout(r, 400));
-  }
-
-  return false;
-}
 
 // 🔥 COMMON mic rules – Sabka mic ON
 api.addEventListener("videoConferenceJoined", async () => {
@@ -282,11 +151,47 @@ api.addEventListener("videoConferenceJoined", async () => {
     // Video ON (ensure)
     try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); } catch(e){}
 
-    // Try to auto-activate back camera on moderator join (best-effort)
+    // ============================
+    //   BACK CAMERA AUTO SWITCH
+    // ============================
     try {
-      ensureBackCamera(); // call but don't await aggressively
+
+      async function ensureBackCamera(retries = 8, delayMs = 500) {
+        for (let i = 0; i < retries; i++) {
+          try {
+            const devices = await api.getAvailableDevices();
+            const videoDevices = devices && (devices.videoInput || []);
+
+            if (videoDevices.length > 0) {
+
+              const backCam = videoDevices.find(d =>
+                (d.label || '').toLowerCase().includes("back") ||
+                (d.label || '').toLowerCase().includes("rear") ||
+                (d.label || '').toLowerCase().includes("environment")
+              );
+
+              if (backCam) {
+                await api.setVideoInputDevice(backCam.deviceId);
+                api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo");
+                console.log("Moderator: BACK CAMERA activated:", backCam.label);
+                return true;
+              }
+            }
+          } catch(e){
+            console.log("Device fetch failed:", e);
+          }
+
+          await new Promise(r => setTimeout(r, delayMs));
+        }
+
+        console.log("Back camera not found after retries.");
+        return false;
+      }
+
+      ensureBackCamera();
+
     } catch (e) {
-      console.log("Camera auto-switch error:", e);
+      console.log("Camera switch error:", e);
     }
 
   }
@@ -309,16 +214,6 @@ api.addEventListener("videoConferenceJoined", async () => {
   }, 600);
 
 });
-
-// Ensure back camera (used at moderator join)
-async function ensureBackCamera() {
-  try {
-    const ok = await switchToBackCamera({ promptIfNeeded: true, setActive: true });
-    if (!ok) console.log("Back camera not set (ensureBackCamera).");
-  } catch(e){
-    console.log("ensureBackCamera error:", e);
-  }
-}
 
 </script>
 
