@@ -3,164 +3,199 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Auto-join Jitsi — Auto</title>
-
+  <title>Jitsi Debug — Auto-join</title>
   <style>
-    html,body,#jitsi-container{height:100%;margin:0;background:#f4f5f8;font-family:system-ui,-apple-system,Segoe UI,Roboto}
-    #jitsi-container iframe{height:100%;width:100%;border:0}
-    .share-popup{
-      position:fixed;left:50%;transform:translateX(-50%);top:12px;z-index:10000;
-      background:#fff;padding:10px 12px;border-radius:8px;
-      box-shadow:0 6px 18px rgba(0,0,0,.12);display:flex;gap:8px;align-items:center
-    }
-    .link{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:520px;font-size:13px}
-    .btn-copy{padding:6px 10px;background:#0b74ff;color:#fff;border:0;border-radius:6px;cursor:pointer}
-    .copied-hint{font-size:12px;color:green;margin-left:6px}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto;background:#f4f5f8}
+    #jitsi-container{height:70vh;margin:12px;border-radius:8px;overflow:hidden;background:#000}
+    .panel{max-width:1100px;margin:8px auto;display:flex;gap:12px;align-items:flex-start}
+    .card{background:#fff;padding:10px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.06);flex:1}
+    button{padding:8px 10px;border-radius:6px;border:0;cursor:pointer;background:#0b74ff;color:#fff}
+    pre{white-space:pre-wrap;font-size:13px}
+    .smallbtn{background:#6b7280;padding:6px 8px}
+    #deviceList{max-height:160px;overflow:auto;border:1px dashed #eee;padding:6px;border-radius:6px}
+    #sharePopup{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .link{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
   </style>
 
-  <script src="https://meeting.experte.de/external_api.js"></script>
+  <!-- Try meet.jit.si as a fallback for testing if your external_api path fails -->
+  <script id="jitsi-script" src="https://meeting.experte.de/external_api.js"></script>
 </head>
 <body>
 
-<div id="jitsi-container"></div>
+<div class="panel" style="max-width:1200px;margin-top:8px;">
+  <div class="card" style="flex: .65">
+    <h3>Jitsi container</h3>
+    <div id="jitsi-container">Loading Jitsi…</div>
+    <div id="sharePopup" style="display:none">
+      <div class="link" id="shareLink">—</div>
+      <button id="copyBtn" class="smallbtn">Copy</button>
+    </div>
+  </div>
 
-<div id="sharePopup" class="share-popup" style="display:none">
-  <div class="link" id="shareLink">—</div>
-  <button id="copyBtn" class="btn-copy">Copy link</button>
-  <div id="copiedHint" class="copied-hint" style="display:none">Copied!</div>
+  <div class="card" style="flex:.35">
+    <h3>Debug & Controls</h3>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <button id="btnInit">(Re)Init Jitsi</button>
+      <button id="btnDevices" class="smallbtn">List Devices</button>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <button id="btnForceMod" class="smallbtn">Force Moderator</button>
+      <button id="btnForceGuest" class="smallbtn">Force Guest</button>
+    </div>
+
+    <div style="margin-bottom:8px;">
+      <strong>Room:</strong> <span id="roomId">—</span><br/>
+      <strong>Created locally:</strong> <span id="isCreator">—</span><br/>
+      <strong>Script src:</strong> <span id="scriptSrc"></span>
+    </div>
+
+    <h4>Device list</h4>
+    <div id="deviceList">---</div>
+
+    <h4>Logs</h4>
+    <pre id="logBox">Open console for more. Logs will appear here.</pre>
+  </div>
 </div>
 
 <script>
-/* ==============================
-      UNIQUE ROOM SYSTEM
-============================== */
-
-function r(l=6){const c='abcdefghijklmnopqrstuvwxyz0123456789';let s='';for(let i=0;i<l;i++)s+=c[Math.floor(Math.random()*c.length)];return s;}
-function makeRoom(){return `room-${Date.now()}-${r(5)}`;}
-
-function getRoom(){
-  const p = new URLSearchParams(location.search);
-  return p.get("room");
-}
-
-function setRoom(room){
-  const u = new URL(location.href);
-  u.searchParams.set("room", room);
-  history.replaceState({}, "", u.toString());
-}
-
-let room = getRoom();
+/* -----------------------
+   Config — change domain if needed
+   ----------------------- */
+const domain = "meeting.experte.de"; // set your domain
+let ROOM = null;
 let creator = false;
+let api = null;
 
-if(!room){
-  room = makeRoom();
-  setRoom(room);
-  creator = true; // first opener = moderator
+// small logger to UI
+function uiLog(...args){
+  const el = document.getElementById('logBox');
+  const t = new Date().toLocaleTimeString();
+  el.textContent = t + ' — ' + args.map(a => (typeof a==='object'?JSON.stringify(a):a)).join(' ') + "\n" + el.textContent;
+  console.log(...args);
 }
 
-/* ==============================
-      JITSI INIT
-============================== */
+// Room helpers
+function rand(l=5){const c='abcdefghijklmnopqrstuvwxyz0123456789';let s='';for(let i=0;i<l;i++) s+=c[Math.floor(Math.random()*c.length)];return s;}
+function makeRoom(){ return `room-${Date.now()}-${rand(6)}`; }
+function getRoomFromURL(){ try { const p=new URLSearchParams(location.search); const r=p.get('room'); return r && r.trim()?r.trim():null; }catch(e){return null;} }
+function setRoomToURL(r){ try{ const u=new URL(location.href); u.searchParams.set('room', r); history.replaceState({}, '', u.toString()); }catch(e){} }
 
-const domain = "meeting.experte.de";
-
-const api = new JitsiMeetExternalAPI(domain, {
-  roomName: room,
-  parentNode: document.getElementById("jitsi-container"),
-  configOverwrite: {
-    prejoinPageEnabled: false,
-    startWithAudioMuted: true,
-    startWithVideoMuted: true
-  },
-  userInfo: { displayName: creator ? "Moderator" : "Participant" }
-});
-
-/* ==============================
-    FORCE MIC / CAMERA STATES
-============================== */
-
-async function micOn(){
-  try { api.executeCommand("setAudioMuted", false); }
-  catch { api.executeCommand("toggleAudio"); }
+// init state
+function prepareRoom(){
+  ROOM = getRoomFromURL();
+  if(!ROOM){ ROOM = makeRoom(); setRoomToURL(ROOM); creator = true; } else creator = false;
+  document.getElementById('roomId').textContent = ROOM;
+  document.getElementById('isCreator').textContent = creator;
+  document.getElementById('scriptSrc').textContent = document.getElementById('jitsi-script').src;
 }
+prepareRoom();
 
-async function camOn(){
-  try { api.executeCommand("setVideoMuted", false); }
-  catch { api.executeCommand("toggleVideo"); }
-}
+// Build share URL
+function buildShareURL(){ try { const u = new URL(location.href); u.searchParams.set('room', ROOM); return u.toString(); }catch(e){ return `https://${domain}/${ROOM}`; } }
 
-async function camOff(){
-  try { api.executeCommand("setVideoMuted", true); }
-  catch { api.executeCommand("toggleVideo"); }
-}
-
-/* ==============================
-      BACK CAMERA SWITCH
-============================== */
-
-async function enableBackCam(retries=6){
-  for(let i=0;i<retries;i++){
-    try{
-      const d = await api.getAvailableDevices();
-      const cams = d.videoInput || [];
-
-      const back = cams.find(v =>
-        v.label.toLowerCase().includes("back") ||
-        v.label.toLowerCase().includes("rear") ||
-        v.label.toLowerCase().includes("environment")
-      );
-
-      if(back){
-        await api.setVideoInputDevice(back.deviceId);
-        await camOn();
-        return;
-      }
-    }catch(e){}
-    await new Promise(r=>setTimeout(r,400));
+// Load devices list
+async function listDevices(){
+  try{
+    if(!api) uiLog('No api instance yet — cannot get devices via api.getAvailableDevices(). Using navigator.mediaDevices.enumerateDevices() as fallback.');
+    const devices = await (api && api.getAvailableDevices ? api.getAvailableDevices() : navigator.mediaDevices.enumerateDevices());
+    const dv = devices.videoInput || devices;
+    const listEl = document.getElementById('deviceList');
+    listEl.innerHTML = '';
+    if(!dv || dv.length===0){ listEl.textContent = 'No cameras found / permission maybe blocked.'; return; }
+    dv.forEach(d => {
+      const div = document.createElement('div');
+      div.textContent = `${d.kind || 'videoInput'} — ${d.label || 'label-hidden'} — id:${d.deviceId}`;
+      listEl.appendChild(div);
+    });
+    uiLog('Devices listed', dv);
+  } catch(e){
+    uiLog('Device list error', e);
+    document.getElementById('deviceList').textContent = 'Error: ' + e;
   }
 }
 
-/* ==============================
-       MODERATOR / GUEST LOGIC
-============================== */
+// Safe ensure functions (same as earlier)
+async function micOn(){ try{ api.executeCommand('setAudioMuted', false); uiLog('setAudioMuted(false)'); }catch(e){ try{ api.executeCommand('toggleAudio'); uiLog('toggleAudio fallback'); }catch(e2){ uiLog('micOn failed', e2);} } }
+async function camOn(){ try{ api.executeCommand('setVideoMuted', false); uiLog('setVideoMuted(false)'); }catch(e){ try{ api.executeCommand('toggleVideo'); uiLog('toggleVideo fallback'); }catch(e2){ uiLog('camOn failed', e2);} } }
+async function camOff(){ try{ api.executeCommand('setVideoMuted', true); uiLog('setVideoMuted(true)'); }catch(e){ try{ api.executeCommand('toggleVideo'); uiLog('toggleVideo fallback'); }catch(e2){ uiLog('camOff failed', e2);} } }
 
-api.addEventListener("videoConferenceJoined", async () => {
+// Back cam switch
+async function tryBackCam(){
+  try{
+    const devices = await (api.getAvailableDevices ? api.getAvailableDevices() : navigator.mediaDevices.enumerateDevices());
+    const vids = devices.videoInput || devices.filter(d=>d.kind==='videoinput');
+    const back = vids.find(v => (v.label||'').toLowerCase().includes('back') || (v.label||'').toLowerCase().includes('rear') || (v.label||'').toLowerCase().includes('environment'));
+    uiLog('tryBackCam found', back);
+    if(back && api.setVideoInputDevice) { await api.setVideoInputDevice(back.deviceId); uiLog('setVideoInputDevice done'); await camOn(); }
+  }catch(e){ uiLog('tryBackCam error', e); }
+}
 
-  await new Promise(r=>setTimeout(r,200));
-
-  const others = await api.getNumberOfParticipants();
-  const moderator = creator || others === 0;
-
-  if(moderator){
-    // MODERATOR: mic ON + back camera ON
-    await micOn();
-    await camOn();
-    enableBackCam();
+// Create/init Jitsi
+function initJitsi(){
+  // cleanup existing if any
+  if(api){
+    try{ api.dispose(); uiLog('Disposed previous api instance'); }catch(e){ uiLog('dispose error', e); }
+    api = null;
+    document.getElementById('jitsi-container').innerHTML = '';
   }
-  else{
-    // PARTICIPANT: mic ON + camera OFF
-    await micOn();
-    await camOff();
+
+  const options = {
+    roomName: ROOM,
+    parentNode: document.getElementById('jitsi-container'),
+    configOverwrite: { prejoinPageEnabled: false, startWithAudioMuted: true, startWithVideoMuted: true },
+    userInfo: { displayName: creator ? 'Moderator' : 'Participant' }
+  };
+
+  try{
+    api = new JitsiMeetExternalAPI(domain, options);
+    uiLog('JitsiMeetExternalAPI created', domain, ROOM);
+  }catch(e){
+    uiLog('Jitsi API creation failed:', e);
+    alert('Jitsi API init failed — check external_api.js path and domain. See console.');
+    return;
   }
 
-  // Show share link
-  setTimeout(()=>{
-    const url = location.href;
-    document.getElementById("shareLink").textContent = url;
-
-    const btn = document.getElementById("copyBtn");
-    btn.onclick = async ()=>{
+  api.addEventListener('videoConferenceJoined', async (ev) => {
+    uiLog('videoConferenceJoined', ev);
+    // small wait for participants list
+    setTimeout(async ()=>{
       try{
-        await navigator.clipboard.writeText(url);
-        document.getElementById("copiedHint").style.display="block";
-        setTimeout(()=>document.getElementById("copiedHint").style.display="none",1200);
-      }catch(e){ alert("Copy failed"); }
-    };
+        const others = await api.getNumberOfParticipants();
+        uiLog('getNumberOfParticipants =>', others);
+        const amFirst = (others===0) || creator;
+        if(amFirst){
+          uiLog('Applying moderator behaviour');
+          await micOn(); await camOn(); tryBackCam();
+        } else {
+          uiLog('Applying participant behaviour');
+          await micOn(); await camOff();
+        }
+        // show share popup
+        const share = buildShareURL();
+        document.getElementById('shareLink').textContent = share;
+        document.getElementById('sharePopup').style.display = 'flex';
+        document.getElementById('copyBtn').onclick = async ()=>{ try{ await navigator.clipboard.writeText(share); alert('Copied'); }catch(e){ alert('Copy failed'); } };
+      }catch(e){ uiLog('post-join error', e); }
+    }, 300);
+  });
 
-    document.getElementById("sharePopup").style.display="flex";
-  },600);
+  api.addEventListener('participantJoined', p=> uiLog('participantJoined', p));
+  api.addEventListener('participantLeft', p=> uiLog('participantLeft', p));
+  api.addEventListener('readyToClose', ()=> uiLog('readyToClose'));
 
-});
+  uiLog('initJitsi complete — waiting to join');
+}
+
+// Buttons
+document.getElementById('btnInit').onclick = ()=>{ prepareRoom(); initJitsi(); };
+document.getElementById('btnDevices').onclick = ()=> listDevices();
+document.getElementById('btnForceMod').onclick = async ()=>{ if(!api){ alert('init first'); return } uiLog('Force moderator'); await micOn(); await camOn(); tryBackCam(); };
+document.getElementById('btnForceGuest').onclick = async ()=>{ if(!api){ alert('init first'); return } uiLog('Force guest'); await micOn(); await camOff(); };
+
+// initial init
+initJitsi();
 </script>
 </body>
 </html>
+
