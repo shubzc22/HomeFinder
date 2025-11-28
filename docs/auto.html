@@ -1,177 +1,326 @@
 <!doctype html>
 <html lang="hi">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Auto-start Jitsi as Moderator</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Auto-join Jitsi (Experte) — Auto</title>
   <style>
-    html,body { height:100%; margin:0; font-family: Arial, sans-serif; background:#111; color:#fff; }
-    #jitsi-container { width:100%; height:100vh; background:#000; display:block; }
-    #overlay {
-      position: fixed; right: 12px; top: 12px;
-      background: rgba(0,0,0,0.5); padding:8px 10px; border-radius:8px;
-      backdrop-filter: blur(4px);
+    html,body,#jitsi-container{height:100%;margin:0;background:#f4f5f8}
+    #jitsi-container iframe{height:100%;width:100%;border:0}
+
+    .notice{position:fixed;left:12px;top:12px;z-index:9999;background:#fff;padding:8px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+
+    /* Share popup styles */
+    .share-popup {
+      position:fixed;
+      left:50%;
+      transform:translateX(-50%);
+      top:12px;
+      z-index:10000;
+      background: #ffffff;
+      padding: 10px 12px;
+      border-radius: 8px;
+      box-shadow: 0 6px 18px rgba(0,0,0,.12);
+      display:flex;
+      gap:8px;
+      align-items:center;
+      font-family:system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial;
+      max-width:calc(100% - 40px);
+    }
+    .share-popup .link {
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      max-width:420px;
       font-size:13px;
     }
-    #copyBtn { margin-left:6px; cursor:pointer; padding:4px 8px; border-radius:4px; border:none; }
+    .share-popup button { padding:6px 10px; border-radius:6px; border:0; cursor:pointer }
+    .btn-copy { background:#0b74ff; color:#fff }
+    .btn-switch { background:#2dbe60; color:#fff } /* Switch Cam button */
+    .btn-close { background:transparent; border:1px solid #e6e9ee }
+    .copied-hint { font-size:12px; color:green; margin-left:6px }
+    .switch-hint { font-size:12px; color:#333; margin-left:6px }
+
+    @media (max-width:520px){
+      .share-popup { flex-direction:column; align-items:flex-start; gap:6px }
+      .share-popup .link{ max-width:calc(100% - 20px) }
+    }
   </style>
+  <script src="https://meeting.experte.de/external_api.js"></script>
 </head>
 <body>
-  <div id="overlay">Meeting room: <span id="roomName">...</span>
-    <button id="copyBtn">Copy link</button>
+
+<div id="jitsi-container"></div>
+  <center>
+<!-- Share popup (hidden by default) -->
+<div id="sharePopup" class="share-popup" style="display:none; align:center;" aria-live="polite">
+  <div class="link" id="shareLink" title="Shareable link">—</div>
+  <div style="display:flex;gap:6px;align-items:center;">
+    <button id="copyBtn" class="btn-copy">Copy link</button>
+    <button id="switchCamBtn" class="btn-switch">Switch Cam</button>
+    <div id="copiedHint" class="copied-hint" style="display:none">Copied!</div>
+    <div id="switchHint" class="switch-hint" style="display:none">Switching...</div>
   </div>
+</div>
+</center>
+<script>
+/*
+  Moderator logic:
+  ----------------
+  Jo sabse pehle join karega = MODERATOR
+  Baaki sab = GUESTS
 
-  <div id="jitsi-container"></div>
+  Moderator:
+     - mic ON
+     - back camera ON
+  Guests:
+     - mic ON
+     - camera OFF
+*/
 
-  <script src="https://meet.jit.si/external_api.js"></script>
-  <script>
-    (function(){
-      // Auto-generate a unique room name so you become the first participant (moderator)
-      const roomName = 'AutoRoom-' + Date.now() + '-' + Math.floor(Math.random()*10000);
-      document.getElementById('roomName').textContent = roomName;
-      const domain = 'meet.jit.si';
-      const container = document.getElementById('jitsi-container');
+const ROOM_NAME = "t8oNswv5Tj";
+const domain = "meeting.experte.de";
 
-      // Copy link button (useful to share)
-      document.getElementById('copyBtn').addEventListener('click', () => {
-        const url = window.location.origin + window.location.pathname + '?room=' + encodeURIComponent(roomName);
-        navigator.clipboard?.writeText(url).then(()=> {
-          alert('Link copied:\n' + url);
-        }).catch(()=> alert('Could not copy. Here is the link:\n' + url));
-      });
+let isModerator = true;    // First user = moderator
 
-      // If someone loads with ?room=NAME we will use that room instead (optional convenience)
-      const urlParams = new URLSearchParams(window.location.search);
-      const paramRoom = urlParams.get('room');
-      const finalRoom = paramRoom ? paramRoom : roomName;
+const options = {
+  roomName: ROOM_NAME,
+  parentNode: document.getElementById("jitsi-container"),
 
-      // Preferred constraints to try to get the back camera on mobiles
-      const preferredConstraints = { audio: true, video: { facingMode: { ideal: "environment" } } };
+  configOverwrite: {
+    prejoinPageEnabled: false,
+    startWithAudioMuted: false,
+    startWithVideoMuted: false
+  },
 
-      // main init
-      async function init() {
-        // try to get permission + preferred camera first (helps reveal device labels)
-        let chosenVideoDeviceId = null;
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia(preferredConstraints);
-          // If stream available, try to extract deviceId from video track settings
-          const vTrack = stream.getVideoTracks()[0];
-          if (vTrack) {
-            const settings = vTrack.getSettings();
-            if (settings && settings.deviceId) chosenVideoDeviceId = settings.deviceId;
-          }
-          // stop the temporary tracks so Jitsi can take camera
-          stream.getTracks().forEach(t => t.stop());
-        } catch (err) {
-          // permission denied or no back camera — we'll fall back to letting Jitsi choose default
-          console.warn('Initial getUserMedia failed or denied:', err && err.name ? err.name : err);
-        }
+  interfaceConfigOverwrite: {},
 
-        // If deviceId not found yet, try to enumerate devices and pick one with 'rear' hints
-        if (!chosenVideoDeviceId && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-          try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoInputs = devices.filter(d => d.kind === 'videoinput');
-            // try to find labels with environment/back/rear keywords
-            const heur = ['back', 'rear', 'environment', 'kamera', 'cam 2', 'camera 2'];
-            for (const d of videoInputs) {
-              const label = (d.label || '').toLowerCase();
-              if (heur.some(h => label.includes(h))) {
-                chosenVideoDeviceId = d.deviceId;
-                break;
-              }
-            }
-            // fallback to first videoinput if any
-            if (!chosenVideoDeviceId && videoInputs.length) chosenVideoDeviceId = videoInputs[0].deviceId;
-          } catch (e) {
-            console.warn('enumerateDevices failed:', e);
-          }
-        }
+  userInfo: {
+    displayName: isModerator ? "Moderator" : "Guest"
+  }
+};
 
-        // Jitsi options
-        const options = {
-          roomName: finalRoom,
-          width: '100%',
-          height: '100%',
-          parentNode: container,
-          configOverwrite: {
-            // skip prejoin so meeting begins immediately
-            prejoinPageEnabled: false,
-            // ensure audio/video start unmuted if possible
-            startWithAudioMuted: false,
-            startWithVideoMuted: false,
-            // do not start in audio-only mode
-            startAudioOnly: false,
-            // optional: disable welcome page
-            enableWelcomePage: false
-          },
-          interfaceConfigOverwrite: {
-            // minimal toolbar to avoid asking name etc
-            DEFAULT_REMOTE_DISPLAY_NAME: 'Participant',
-            // you can customize toolbar buttons if desired
-          },
-          userInfo: {
-            displayName: 'Moderator'
-          }
-        };
+// Load meeting
+const api = new JitsiMeetExternalAPI(domain, options);
 
-        // create the iframe / api
-        const api = new JitsiMeetExternalAPI(domain, options);
+// Build sharable link
+function buildShareURL(){
+  return `https://${domain}/${ROOM_NAME}`;
+}
 
-        // When joined, try to ensure mic & cam are ON and set the chosen device if available
-        api.addEventListener('videoConferenceJoined', async () => {
-          console.log('Joined conference as:', finalRoom);
-          // if we found a preferred video device id, tell Jitsi to use it
-          if (chosenVideoDeviceId) {
-            try {
-              // setVideoInputDevice is supported in many Jitsi builds
-              await api.executeCommand('setVideoInputDevice', chosenVideoDeviceId);
-              console.log('Requested video deviceId:', chosenVideoDeviceId);
-            } catch (e) {
-              console.warn('setVideoInputDevice failed:', e);
-            }
-          } else {
-            // another attempt: request facingMode environment for browsers that support setVideoConstraints (best-effort)
-            try {
-              await api.executeCommand('setVideoConstraints', { facingMode: { ideal: 'environment' } });
-            } catch (e) {
-              // not supported everywhere
-            }
-          }
+// Show popup
+function showSharePopup(link){
+  const popup = document.getElementById('sharePopup');
+  const linkEl = document.getElementById('shareLink');
+  const copyBtn = document.getElementById('copyBtn');
+  const copiedHint = document.getElementById('copiedHint');
+  const switchBtn = document.getElementById('switchCamBtn');
+  const switchHint = document.getElementById('switchHint');
 
-          // Ensure audio/video are unmuted — we set startWithAudioMuted:false, startWithVideoMuted:false above,
-          // but call toggle commands only if they are muted (we don't have direct isMuted getter reliably here).
-          // Best-effort: try unmute by toggling if needed (this is safe when already unmuted in most builds).
-          try {
-            // Some Jitsi deployments expose isAudioMuted/isVideoMuted via getAvailableDevices etc — but external API doesn't always.
-            // We'll attempt to unmute by executing 'toggleAudio'/'toggleVideo' only if start flags caused them to be muted.
-            // NOTE: these are toggles; if you find mic/cam reversed toggle twice.
-            // We'll attempt a single toggle to be safe, but rely mainly on the startWithAudioMuted/startWithVideoMuted config.
-            // (Commented out to avoid accidental toggles in unknown deployments)
-            // api.executeCommand('toggleAudio');
-            // api.executeCommand('toggleVideo');
-          } catch (err) {
-            console.warn('could not toggle audio/video:', err);
-          }
+  linkEl.textContent = link;
+  linkEl.setAttribute('title', link);
+  popup.style.display = 'flex';
 
-          // Optionally set display name again
-          try { api.executeCommand('displayName', 'Moderator'); } catch(e){}
-        });
+  copyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      copiedHint.style.display = 'block';
+      setTimeout(()=> copiedHint.style.display = 'none', 1500);
+    } catch(e) {
+      const textarea = document.createElement('textarea');
+      textarea.value = link;
+      document.body.appendChild(textarea);
+      textarea.select();
+      try { document.execCommand('copy'); copiedHint.style.display = 'block'; setTimeout(()=> copiedHint.style.display='none',1500); } catch(e){ alert('Copy failed.'); }
+      textarea.remove();
+    }
+  };
 
-        // Error/debug listeners
-        api.addEventListener('participantLeft', (evt) => {
-          console.log('participantLeft', evt);
-        });
-        api.addEventListener('participantJoined', (evt) => {
-          console.log('participantJoined', evt);
-        });
-
-        // If you want to force layout/fullscreen, can add code here
+  // Switch cam button click
+  switchBtn.onclick = async () => {
+    // show hint
+    switchHint.textContent = 'Trying to activate back camera...';
+    switchHint.style.display = 'inline-block';
+    try {
+      const ok = await switchToBackCamera({promptIfNeeded: true, setActive: true});
+      if (ok) {
+        switchHint.textContent = 'Back camera activated ✓';
+        setTimeout(()=> switchHint.style.display = 'none', 1800);
+      } else {
+        switchHint.textContent = 'Back camera not found';
+        setTimeout(()=> switchHint.style.display = 'none', 1800);
       }
+    } catch(err) {
+      console.warn('Switch cam error', err);
+      switchHint.textContent = 'Switch failed';
+      setTimeout(()=> switchHint.style.display = 'none', 1800);
+    }
+  };
+}
 
-      // Kick off init immediately
-      init();
-    })();
-  </script>
+
+// Robust back-camera finder + setter
+async function getDevicesFromAPIorNavigator() {
+  // Try Jitsi API first
+  try {
+    if (api && typeof api.getAvailableDevices === 'function') {
+      const dev = await api.getAvailableDevices();
+      // Normalize to MediaDeviceInfo-like objects
+      const videoDevices = (dev && (dev.videoInput || []));
+      if (videoDevices && videoDevices.length) return videoDevices.map(d => ({
+        deviceId: d.deviceId || d.deviceId,
+        label: d.label || ''
+      }));
+    }
+  } catch(e){
+    console.log('api.getAvailableDevices failed', e);
+  }
+
+  // Fallback to navigator.mediaDevices.enumerateDevices
+  if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = list.filter(d => d.kind === 'videoinput');
+      if (videoDevices.length) return videoDevices.map(d => ({ deviceId: d.deviceId, label: d.label || '' }));
+    } catch(e){
+      console.log('enumerateDevices failed', e);
+    }
+  }
+
+  return [];
+}
+
+async function tryGetUserMediaForLabels() {
+  // If device labels are empty, we may need permission to get labels.
+  // Try to request minimal camera access quietly to unlock labels.
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    // close tracks quickly
+    stream.getTracks().forEach(t => t.stop());
+    return true;
+  } catch(e){
+    console.log('getUserMedia permission denied or failed:', e);
+    return false;
+  }
+}
+
+function looksLikeBackLabel(label){
+  if(!label) return false;
+  label = label.toLowerCase();
+  return label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('wide') || label.includes('ultrawide') || label.includes('main');
+}
+
+async function switchToBackCamera({promptIfNeeded=true, setActive=true} = {}) {
+  // Try a few attempts to find a back camera
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let devices = await getDevicesFromAPIorNavigator();
+
+    // If no labels present, try prompting for permission once (to reveal labels)
+    const hasAnyLabel = devices.some(d => d.label && d.label.length>0);
+    if (!hasAnyLabel && promptIfNeeded && attempt === 0) {
+      await tryGetUserMediaForLabels();
+      devices = await getDevicesFromAPIorNavigator();
+    }
+
+    // Find best match for back camera
+    let back = devices.find(d => looksLikeBackLabel(d.label));
+    if (!back && devices.length > 1) {
+      // heuristic: pick the last device in list (often rear on mobile)
+      back = devices[devices.length - 1];
+    }
+
+    if (back) {
+      try {
+        // If api provides setVideoInputDevice use it
+        if (api && typeof api.setVideoInputDevice === 'function') {
+          await api.setVideoInputDevice(back.deviceId);
+          // toggle video to force refresh
+          try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); } catch(e){}
+        } else {
+          // fallback: try apply constraints via getUserMedia switch (best-effort)
+          try {
+            const constraints = { video: { deviceId: { exact: back.deviceId } } };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            // If Jitsi is using the camera this might not replace it; close stream
+            stream.getTracks().forEach(t => t.stop());
+          } catch(e){
+            console.warn('Fallback getUserMedia with deviceId failed', e);
+          }
+        }
+
+        console.log('Switched to back camera:', back.label || back.deviceId);
+        return true;
+      } catch(e) {
+        console.warn('setVideoInputDevice failed', e);
+        return false;
+      }
+    }
+
+    // small delay before retry
+    await new Promise(r => setTimeout(r, 400));
+  }
+
+  return false;
+}
+
+// 🔥 COMMON mic rules – Sabka mic ON
+api.addEventListener("videoConferenceJoined", async () => {
+
+  // Force mic ON (everyone)
+  try{
+    api.executeCommand("toggleAudio");
+    api.executeCommand("toggleAudio");
+  }catch(e){ console.warn('Audio toggle failed', e); }
+
+
+  // ------------------------------------------------------------
+  //                  🔥 MODERATOR BLOCK
+  // ------------------------------------------------------------
+  if (isModerator) {
+
+    // Video ON (ensure)
+    try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); } catch(e){}
+
+    // Try to auto-activate back camera on moderator join (best-effort)
+    try {
+      ensureBackCamera(); // call but don't await aggressively
+    } catch (e) {
+      console.log("Camera auto-switch error:", e);
+    }
+
+  }
+
+  // ------------------------------------------------------------
+  //                  🔥 GUEST BLOCK
+  // ------------------------------------------------------------
+  else {
+
+    // Guest camera OFF
+    try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); }catch(e){}
+    console.log("Guest joined → mic ON, cam OFF");
+  }
+
+
+  // Show sharable link popup
+  setTimeout(() => {
+    const shareURL = buildShareURL();
+    showSharePopup(shareURL);
+  }, 600);
+
+});
+
+// Ensure back camera (used at moderator join)
+async function ensureBackCamera() {
+  try {
+    const ok = await switchToBackCamera({ promptIfNeeded: true, setActive: true });
+    if (!ok) console.log("Back camera not set (ensureBackCamera).");
+  } catch(e){
+    console.log("ensureBackCamera error:", e);
+  }
+}
+
+</script>
+
 </body>
 </html>
