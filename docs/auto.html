@@ -79,8 +79,6 @@ const ROOM_NAME = "t8oNswv5Tj";
 const domain = "meeting.experte.de";
 
 let isModerator = true;    // First user = moderator
-// *** IMPORTANT ***
-// Agar aap moderator ko detect server-side se karte ho, to yahan true/false set kar sakte ho.
 
 const options = {
   roomName: ROOM_NAME,
@@ -88,8 +86,8 @@ const options = {
 
   configOverwrite: {
     prejoinPageEnabled: false,
-    startWithAudioMuted: false,   // We will control manually
-    startWithVideoMuted: false    // We will control manually
+    startWithAudioMuted: false,
+    startWithVideoMuted: false
   },
 
   interfaceConfigOverwrite: {},
@@ -102,18 +100,16 @@ const options = {
 // Load meeting
 const api = new JitsiMeetExternalAPI(domain, options);
 
-// Helper: build a shareable URL for this room
+// Build sharable link
 function buildShareURL(){
-  // Constructing a simple shareable link. Adjust if your deployment uses a different path.
   return `https://${domain}/${ROOM_NAME}`;
 }
 
-// Show popup with link + copy button
+// Show popup
 function showSharePopup(link){
   const popup = document.getElementById('sharePopup');
   const linkEl = document.getElementById('shareLink');
   const copyBtn = document.getElementById('copyBtn');
-  const closeBtn = document.getElementById('closeBtn');
   const copiedHint = document.getElementById('copiedHint');
 
   linkEl.textContent = link;
@@ -126,78 +122,96 @@ function showSharePopup(link){
       copiedHint.style.display = 'block';
       setTimeout(()=> copiedHint.style.display = 'none', 1500);
     } catch(e) {
-      // fallback
       const textarea = document.createElement('textarea');
       textarea.value = link;
       document.body.appendChild(textarea);
       textarea.select();
-      try { document.execCommand('copy'); copiedHint.style.display = 'block'; setTimeout(()=> copiedHint.style.display = 'none',1500); } catch(e){ alert('Copy failed. Select and copy the link manually.'); }
+      try { document.execCommand('copy'); copiedHint.style.display = 'block'; setTimeout(()=> copiedHint.style.display='none',1500); } catch(e){ alert('Copy failed.'); }
       textarea.remove();
     }
   };
-
-  closeBtn.onclick = () => { popup.style.display = 'none'; };
 }
+
 
 // 🔥 COMMON mic rules – Sabka mic ON
 api.addEventListener("videoConferenceJoined", async () => {
 
   // Force mic ON (everyone)
   try{
-    // Toggle twice to ensure known state (works if API starts with unknown state)
     api.executeCommand("toggleAudio");
     api.executeCommand("toggleAudio");
   }catch(e){ console.warn('Audio toggle failed', e); }
 
+
+  // ------------------------------------------------------------
+  //                  🔥 MODERATOR BLOCK
+  // ------------------------------------------------------------
   if (isModerator) {
-    // -----------------------
-    //   MODERATOR RULES
-    // -----------------------
 
-    // Start video ON
-    try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); } catch(e){/*ignore*/}
+    // Video ON (ensure)
+    try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); } catch(e){}
 
-    // Switch to BACK CAMERA
+    // ============================
+    //   BACK CAMERA AUTO SWITCH
+    // ============================
     try {
-      const devices = await api.getAvailableDevices();
-      const videoDevices = devices.videoInput || [];
 
-      // Find back camera by label
-      const backCam = videoDevices.find(d =>
-        (d.label || '').toLowerCase().includes("back") ||
-        (d.label || '').toLowerCase().includes("rear")
-      );
+      async function ensureBackCamera(retries = 8, delayMs = 500) {
+        for (let i = 0; i < retries; i++) {
+          try {
+            const devices = await api.getAvailableDevices();
+            const videoDevices = devices && (devices.videoInput || []);
 
-      if (backCam) {
-        api.setVideoInputDevice(backCam.deviceId);
-        console.log("Moderator: Back camera ON");
-      } else {
-        console.log("Back camera not found – front cam used.");
+            if (videoDevices.length > 0) {
+
+              const backCam = videoDevices.find(d =>
+                (d.label || '').toLowerCase().includes("back") ||
+                (d.label || '').toLowerCase().includes("rear") ||
+                (d.label || '').toLowerCase().includes("environment")
+              );
+
+              if (backCam) {
+                await api.setVideoInputDevice(backCam.deviceId);
+                api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo");
+                console.log("Moderator: BACK CAMERA activated:", backCam.label);
+                return true;
+              }
+            }
+          } catch(e){
+            console.log("Device fetch failed:", e);
+          }
+
+          await new Promise(r => setTimeout(r, delayMs));
+        }
+
+        console.log("Back camera not found after retries.");
+        return false;
       }
+
+      ensureBackCamera();
 
     } catch (e) {
       console.log("Camera switch error:", e);
     }
 
-  } else {
-    // -----------------------
-    //       GUEST RULES
-    // -----------------------
+  }
+
+  // ------------------------------------------------------------
+  //                  🔥 GUEST BLOCK
+  // ------------------------------------------------------------
+  else {
 
     // Guest camera OFF
-    try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); } catch(e){/*ignore*/}
-
+    try{ api.executeCommand("toggleVideo"); api.executeCommand("toggleVideo"); }catch(e){}
     console.log("Guest joined → mic ON, cam OFF");
   }
 
-  // --- When meeting is properly started, create & show shareable link popup ---
-  // We'll assume after `videoConferenceJoined` the room is ready and a shareable link can be generated.
 
-  // Small delay to allow the meeting backend to finalize (optional)
+  // Show sharable link popup
   setTimeout(() => {
     const shareURL = buildShareURL();
     showSharePopup(shareURL);
-  }, 600); // 600ms delay — tweak if needed
+  }, 600);
 
 });
 
@@ -205,6 +219,3 @@ api.addEventListener("videoConferenceJoined", async () => {
 
 </body>
 </html>
-
-
-
