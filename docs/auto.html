@@ -3,271 +3,164 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Auto-join Jitsi (Experte) — Auto</title>
+  <title>Auto-join Jitsi — Auto</title>
+
   <style>
-    html,body,#jitsi-container{height:100%;margin:0;background:#f4f5f8;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans",Arial}
+    html,body,#jitsi-container{height:100%;margin:0;background:#f4f5f8;font-family:system-ui,-apple-system,Segoe UI,Roboto}
     #jitsi-container iframe{height:100%;width:100%;border:0}
-    .share-popup {
-      position:fixed;
-      left:50%;
-      transform:translateX(-50%);
-      top:12px;
-      z-index:10000;
-      background: #ffffff;
-      padding: 10px 12px;
-      border-radius: 8px;
-      box-shadow: 0 6px 18px rgba(0,0,0,.12);
-      display:flex;
-      gap:8px;
-      align-items:center;
-      max-width:calc(100% - 40px);
+    .share-popup{
+      position:fixed;left:50%;transform:translateX(-50%);top:12px;z-index:10000;
+      background:#fff;padding:10px 12px;border-radius:8px;
+      box-shadow:0 6px 18px rgba(0,0,0,.12);display:flex;gap:8px;align-items:center
     }
-    .share-popup .link { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:520px; font-size:13px }
-    .share-popup button { padding:6px 10px; border-radius:6px; border:0; cursor:pointer }
-    .btn-copy { background:#0b74ff; color:#fff }
-    .copied-hint { font-size:12px; color:green; margin-left:6px }
-    @media (max-width:520px){
-      .share-popup { flex-direction:column; align-items:flex-start; gap:6px }
-      .share-popup .link{ max-width:calc(100% - 20px) }
-    }
-    /* small helper for debug logs (optional) */
-    .log {
-      position:fixed; right:12px; bottom:12px; z-index:9999; background:#fff; padding:8px 10px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,.08); font-size:12px; max-width:280px;
-    }
+    .link{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:520px;font-size:13px}
+    .btn-copy{padding:6px 10px;background:#0b74ff;color:#fff;border:0;border-radius:6px;cursor:pointer}
+    .copied-hint{font-size:12px;color:green;margin-left:6px}
   </style>
 
-  <!-- external_api.js for your Jitsi deployment -->
   <script src="https://meeting.experte.de/external_api.js"></script>
 </head>
 <body>
 
 <div id="jitsi-container"></div>
 
-<!-- Share popup (hidden by default) -->
-<div id="sharePopup" class="share-popup" style="display:none" aria-live="polite">
-  <div class="link" id="shareLink" title="Shareable link">—</div>
-  <div style="display:flex;gap:6px;align-items:center;">
-    <button id="copyBtn" class="btn-copy">Copy link</button>
-    <div id="copiedHint" class="copied-hint" style="display:none">Copied!</div>
-  </div>
+<div id="sharePopup" class="share-popup" style="display:none">
+  <div class="link" id="shareLink">—</div>
+  <button id="copyBtn" class="btn-copy">Copy link</button>
+  <div id="copiedHint" class="copied-hint" style="display:none">Copied!</div>
 </div>
 
-<!-- Optional tiny log box for quick debugging -->
-<div id="debugLog" class="log" style="display:none"></div>
-
 <script>
-/*
-  Full behaviour:
-   - If URL has ?room=ROOMID → join that room
-   - If not → generate unique room id, set it into URL (so creator can share), and treat this client as "creator" (local moderator behaviour)
-   - After joining, determine final moderator-vs-guest behaviour using getNumberOfParticipants()
-   - Moderator behaviour (local): mic ON, camera ON, attempt to switch to back camera
-   - Guest behaviour (local): mic ON, camera OFF
-   - Uses safe setAudioMuted/setVideoMuted where available, otherwise fallbacks
-*/
+/* ==============================
+      UNIQUE ROOM SYSTEM
+============================== */
 
-const domain = "meeting.experte.de"; // your Jitsi domain (no protocol)
-const debug = false; // set true to show debug log
+function r(l=6){const c='abcdefghijklmnopqrstuvwxyz0123456789';let s='';for(let i=0;i<l;i++)s+=c[Math.floor(Math.random()*c.length)];return s;}
+function makeRoom(){return `room-${Date.now()}-${r(5)}`;}
 
-function log(...args){ if(debug){ const el = document.getElementById('debugLog'); el.style.display='block'; el.textContent = new Date().toLocaleTimeString() + ' — ' + args.map(a=> (typeof a==='object'?JSON.stringify(a):a)).join(' '); console.log(...args);} }
-
-// ---------------- Room helpers ----------------
-function randomAlphaNum(len = 6){
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let s = '';
-  for (let i=0;i<len;i++) s += chars[Math.floor(Math.random()*chars.length)];
-  return s;
-}
-function makeRoomId(){
-  const ts = Date.now(); // unique-ish
-  return `experte-${ts}-${randomAlphaNum(6)}`;
-}
-function getRoomFromURL(){
-  try{
-    const p = new URLSearchParams(window.location.search);
-    const r = p.get('room');
-    if (r && r.trim().length) return r.trim();
-  }catch(e){}
-  return null;
-}
-function setRoomInURL(room){
-  try{
-    const u = new URL(window.location);
-    u.searchParams.set('room', room);
-    window.history.replaceState({}, '', u.toString());
-  }catch(e){}
+function getRoom(){
+  const p = new URLSearchParams(location.search);
+  return p.get("room");
 }
 
-// determine room & creator flag
-let ROOM_NAME = getRoomFromURL();
-let iAmCreator = false;
-if (!ROOM_NAME) {
-  ROOM_NAME = makeRoomId();
-  setRoomInURL(ROOM_NAME);
-  iAmCreator = true; // this client created the room; treat as moderator candidate
-}
-log('Using room:', ROOM_NAME, 'iAmCreator:', iAmCreator);
-
-// ---------------- Build share URL ----------------
-function buildShareURL(){
-  try {
-    const u = new URL(window.location);
-    u.searchParams.set('room', ROOM_NAME);
-    return u.toString();
-  } catch(e) {
-    return `https://${domain}/${ROOM_NAME}`;
-  }
+function setRoom(room){
+  const u = new URL(location.href);
+  u.searchParams.set("room", room);
+  history.replaceState({}, "", u.toString());
 }
 
-// ---------------- Share popup ----------------
-function showSharePopup(link){
-  const popup = document.getElementById('sharePopup');
-  const linkEl = document.getElementById('shareLink');
-  const copyBtn = document.getElementById('copyBtn');
-  const copiedHint = document.getElementById('copiedHint');
+let room = getRoom();
+let creator = false;
 
-  linkEl.textContent = link;
-  linkEl.setAttribute('title', link);
-  popup.style.display = 'flex';
-
-  copyBtn.onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(link);
-      copiedHint.style.display = 'block';
-      setTimeout(()=> copiedHint.style.display = 'none', 1500);
-    } catch(e) {
-      const textarea = document.createElement('textarea');
-      textarea.value = link;
-      document.body.appendChild(textarea);
-      textarea.select();
-      try { document.execCommand('copy'); copiedHint.style.display = 'block'; setTimeout(()=> copiedHint.style.display='none',1500); } catch(err){ alert('Copy failed.'); }
-      textarea.remove();
-    }
-  };
+if(!room){
+  room = makeRoom();
+  setRoom(room);
+  creator = true; // first opener = moderator
 }
 
-// ---------------- Jitsi init ----------------
-const options = {
-  roomName: ROOM_NAME,
+/* ==============================
+      JITSI INIT
+============================== */
+
+const domain = "meeting.experte.de";
+
+const api = new JitsiMeetExternalAPI(domain, {
+  roomName: room,
   parentNode: document.getElementById("jitsi-container"),
   configOverwrite: {
     prejoinPageEnabled: false,
-    // start muted to avoid unwanted access; we'll unmute programmatically
     startWithAudioMuted: true,
     startWithVideoMuted: true
   },
-  interfaceConfigOverwrite: {},
-  userInfo: { displayName: iAmCreator ? "Moderator" : "Participant" }
-};
-
-// Create API (wrap in try for graceful error if external_api.js didn't load)
-let api;
-try {
-  api = new JitsiMeetExternalAPI(domain, options);
-} catch (e) {
-  alert('Jitsi API load failed. Check external_api.js path and domain. Error: ' + e);
-  throw e;
-}
-
-// safe toggles: prefer setAudioMuted/setVideoMuted; else fallback to toggle once
-async function ensureAudioOn() {
-  try {
-    await api.executeCommand("setAudioMuted", false);
-    return;
-  } catch (e) {
-    try { api.executeCommand("toggleAudio"); return; } catch(e2){ console.warn("Audio ensure failed", e2); }
-  }
-}
-async function ensureVideoOn() {
-  try {
-    await api.executeCommand("setVideoMuted", false);
-    return;
-  } catch (e) {
-    try { api.executeCommand("toggleVideo"); return; } catch(e2){ console.warn("Video ensure failed", e2); }
-  }
-}
-async function ensureVideoOff() {
-  try {
-    await api.executeCommand("setVideoMuted", true);
-    return;
-  } catch (e) {
-    try { api.executeCommand("toggleVideo"); return; } catch(e2){ console.warn("Video off failed", e2); }
-  }
-}
-
-// Back camera switching with retries
-async function trySwitchToBackCamera(retries = 6, delayMs = 500) {
-  for (let i=0;i<retries;i++){
-    try{
-      const devices = await api.getAvailableDevices();
-      const videoDevices = devices && (devices.videoInput || []);
-      if (videoDevices && videoDevices.length){
-        const backCam = videoDevices.find(d =>
-          (d.label||'').toLowerCase().includes('back') ||
-          (d.label||'').toLowerCase().includes('rear') ||
-          (d.label||'').toLowerCase().includes('environment')
-        );
-        if (backCam) {
-          await api.setVideoInputDevice(backCam.deviceId);
-          await ensureVideoOn();
-          log("Back camera set:", backCam.label);
-          return true;
-        }
-      }
-    } catch(e){
-      console.warn("switch attempt failed:", e);
-    }
-    await new Promise(r => setTimeout(r, delayMs));
-  }
-  log("Back camera not found after retries.");
-  return false;
-}
-
-// ---------------- Event: joined conference ----------------
-api.addEventListener("videoConferenceJoined", async (event) => {
-  log("videoConferenceJoined event:", event);
-
-  // small delay so participant list updates
-  await new Promise(r => setTimeout(r, 200));
-
-  try {
-    // getNumberOfParticipants returns number of OTHER participants in many deployments
-    const others = await api.getNumberOfParticipants();
-    const amFirst = (typeof others === 'number' && others === 0);
-
-    // Use iAmCreator as additional hint: if we generated the room and we're first, prefer moderator behaviour
-    const treatAsModerator = amFirst || iAmCreator;
-
-    if (treatAsModerator) {
-      log("Local: Moderator behaviour");
-      try { api.executeCommand('displayName', 'Moderator'); } catch(e){}
-      await ensureAudioOn();
-      await ensureVideoOn();
-      // switch to back camera in background (don't await long)
-      trySwitchToBackCamera();
-    } else {
-      log("Local: Guest behaviour");
-      await ensureAudioOn();
-      await ensureVideoOff();
-    }
-  } catch (e) {
-    console.warn("Error deciding moderator/guest:", e);
-    // fallback: guest behaviour
-    await ensureAudioOn();
-    await ensureVideoOff();
-  }
-
-  // show share popup (so creator can copy link)
-  setTimeout(()=> showSharePopup(buildShareURL()), 600);
+  userInfo: { displayName: creator ? "Moderator" : "Participant" }
 });
 
-// small logs for join/leave
-api.addEventListener("participantJoined", (p) => { log("participantJoined:", p); });
-api.addEventListener("participantLeft", (p) => { log("participantLeft:", p); });
+/* ==============================
+    FORCE MIC / CAMERA STATES
+============================== */
 
-// expose api for console debugging
-window._jitsiApi = api;
+async function micOn(){
+  try { api.executeCommand("setAudioMuted", false); }
+  catch { api.executeCommand("toggleAudio"); }
+}
 
+async function camOn(){
+  try { api.executeCommand("setVideoMuted", false); }
+  catch { api.executeCommand("toggleVideo"); }
+}
+
+async function camOff(){
+  try { api.executeCommand("setVideoMuted", true); }
+  catch { api.executeCommand("toggleVideo"); }
+}
+
+/* ==============================
+      BACK CAMERA SWITCH
+============================== */
+
+async function enableBackCam(retries=6){
+  for(let i=0;i<retries;i++){
+    try{
+      const d = await api.getAvailableDevices();
+      const cams = d.videoInput || [];
+
+      const back = cams.find(v =>
+        v.label.toLowerCase().includes("back") ||
+        v.label.toLowerCase().includes("rear") ||
+        v.label.toLowerCase().includes("environment")
+      );
+
+      if(back){
+        await api.setVideoInputDevice(back.deviceId);
+        await camOn();
+        return;
+      }
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,400));
+  }
+}
+
+/* ==============================
+       MODERATOR / GUEST LOGIC
+============================== */
+
+api.addEventListener("videoConferenceJoined", async () => {
+
+  await new Promise(r=>setTimeout(r,200));
+
+  const others = await api.getNumberOfParticipants();
+  const moderator = creator || others === 0;
+
+  if(moderator){
+    // MODERATOR: mic ON + back camera ON
+    await micOn();
+    await camOn();
+    enableBackCam();
+  }
+  else{
+    // PARTICIPANT: mic ON + camera OFF
+    await micOn();
+    await camOff();
+  }
+
+  // Show share link
+  setTimeout(()=>{
+    const url = location.href;
+    document.getElementById("shareLink").textContent = url;
+
+    const btn = document.getElementById("copyBtn");
+    btn.onclick = async ()=>{
+      try{
+        await navigator.clipboard.writeText(url);
+        document.getElementById("copiedHint").style.display="block";
+        setTimeout(()=>document.getElementById("copiedHint").style.display="none",1200);
+      }catch(e){ alert("Copy failed"); }
+    };
+
+    document.getElementById("sharePopup").style.display="flex";
+  },600);
+
+});
 </script>
 </body>
 </html>
