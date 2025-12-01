@@ -5,68 +5,71 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Auto Jitsi Meeting</title>
   <style>
-    html,body,#container{height:100%;margin:0;padding:0;}
-    #container { position: relative; }
+    html, body, #container {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: #f4f5f8;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
   </style>
 
-  <!-- API for controlling camera/mic -->
-  <script src="https://8x8.vc/_jitsi_external_api/external_api.js"></script>
-
   <script>
-    function generateRoomID(length = 12) {
+    // Random room ID
+    function generateRoomID(length = 10) {
       const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
       let result = "";
-      for (let i = 0; i < length; i++)
+      for (let i = 0; i < length; i++) {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
       return result;
     }
 
     window.onload = () => {
       const room = generateRoomID(10);
+      const base = "https://meeting.experte.de/";
 
-      const domain = "meeting.experte.de";
-      const options = {
-        roomName: room,
-        parentNode: document.querySelector('#container'),
-        configOverwrite: {
-          startWithAudioMuted: false,
-          startWithVideoMuted: false
-        },
-        interfaceConfigOverwrite: {
-          SHOW_JITSI_WATERMARK: false,
-          SHOW_WATERMARK_FOR_GUESTS: false
-        }
-      };
+      // Jitsi config via URL
+      const params =
+        "#jitsi_meet_external_api_id=0" +
+        "&config.defaultLanguage=%22en%22" +
+        // IMPORTANT: mic + camera NOT muted by default
+        "&config.startWithAudioMuted=false" +
+        "&config.startWithVideoMuted=false" +
+        // prejoin screen hatao
+        "&config.prejoinPageEnabled=false" +
+        "&interfaceConfig.DEFAULT_BACKGROUND=%22%23f4f5f8%22" +
+        "&interfaceConfig.SHOW_JITSI_WATERMARK=false" +
+        "&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false" +
+        "&interfaceConfig.APP_NAME=%22EXPERTE.com%20Online%20Meeting%22" +
+        "&interfaceConfig.NATIVE_APP_NAME=%22EXPERTE.com%20Online%20Meeting%22" +
+        "&interfaceConfig.PROVIDER_NAME=%22EXPERTE.com%20Online%20Meeting%22" +
+        "&interfaceConfig.LANG_DETECTION=false" +
+        "&interfaceConfig.CLOSE_PAGE_GUEST_HINT=false" +
+        "&interfaceConfig.SHOW_PROMOTIONAL_CLOSE_PAGE=false" +
+        "&interfaceConfig.MOBILE_APP_PROMO=false" +
+        "&interfaceConfig.SHOW_CHROME_EXTENSION_BANNER=false" +
+        "&interfaceConfig.TOOLBAR_BUTTONS=%5B%22microphone%22%2C%22camera%22%2C%22closedcaptions%22%2C%22desktop%22%2C%22fullscreen%22%2C%22fodeviceselection%22%2C%22hangup%22%2C%22profile%22%2C%22chat%22%2C%22recording%22%2C%22livestreaming%22%2C%22etherpad%22%2C%22sharedvideo%22%2C%22settings%22%2C%22raisehand%22%2C%22videoquality%22%2C%22filmstrip%22%2C%22invite%22%2C%22feedback%22%2C%22stats%22%2C%22shortcuts%22%2C%22tileview%22%2C%22videobackgroundblur%22%2C%22download%22%2C%22help%22%2C%22mute-everyone%22%5D" +
+        "&appData.localStorageContent=null";
 
-      const api = new JitsiMeetExternalAPI(domain, options);
+      const url = base + room + params;
 
-      // once meeting is ready, turn mic/cam on
-      api.addEventListener("videoConferenceJoined", () => {
-        api.executeCommand("toggleAudio"); // ON mic if not already
-        api.executeCommand("toggleVideo"); // ON cam if not already
-
-        // switch to back camera
-        setTimeout(async () => {
-          try {
-            const devices = await api.getAvailableDevices();
-            const videoDevices = devices.videoInput || [];
-
-            const backCam = videoDevices.find(d =>
-              d.label.toLowerCase().includes("back")
-              || d.label.toLowerCase().includes("rear")
-            );
-
-            if (backCam) {
-              api.setVideoInputDevice(backCam.deviceId);
-            }
-          } catch(e){}
-        }, 1500);
-      });
+      document.getElementById("jitsiFrame").src = url;
     };
   </script>
 </head>
 
 <body>
-  <div id="container"></div>
+  <div id="container">
+    <iframe
+      id="jitsiFrame"
+      allow="camera; microphone; display-capture; autoplay; clipboard-write"
+      allowfullscreen="true">
+    </iframe>
+  </div>
 </body>
 </html>
