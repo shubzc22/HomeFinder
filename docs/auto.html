@@ -4,44 +4,16 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Auto Jitsi Meeting</title>
-
   <style>
-    html, body, #container {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      background: #f4f5f8;
-    }
-    iframe {
-      width: 100%;
-      height: 100%;
-      border: 0;
-    }
-
-    /* Camera switch button style */
-    #camSwitchBtn {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      padding: 12px 18px;
-      background: #111;
-      color: white;
-      font-size: 15px;
-      border-radius: 8px;
-      cursor: pointer;
-      z-index: 9999;
-      opacity: 0.8;
-    }
-    #camSwitchBtn:hover {
-      opacity: 1;
-    }
+    html,body,#container{height:100%;margin:0;padding:0;}
+    #container { position: relative; }
   </style>
 
-  <!-- External API -->
+  <!-- API for controlling camera/mic -->
   <script src="https://8x8.vc/_jitsi_external_api/external_api.js"></script>
 
   <script>
-    function generateRoomID(length = 10) {
+    function generateRoomID(length = 12) {
       const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
       let result = "";
       for (let i = 0; i < length; i++)
@@ -49,43 +21,16 @@
       return result;
     }
 
-    let api = null;
-    let currentCameraIndex = 0;
-    let videoDevices = [];
-
-    async function switchCamera() {
-      if (!api) return;
-
-      try {
-        const devices = await api.getAvailableDevices();
-        videoDevices = devices.videoInput || [];
-
-        if (videoDevices.length < 2) {
-          alert("Only one camera detected!");
-          return;
-        }
-
-        currentCameraIndex =
-          (currentCameraIndex + 1) % videoDevices.length;
-
-        api.setVideoInputDevice(videoDevices[currentCameraIndex].deviceId);
-
-      } catch (err) {
-        console.log("Camera switch failed:", err);
-      }
-    }
-
     window.onload = () => {
       const room = generateRoomID(10);
-      const domain = "meeting.experte.de";
 
+      const domain = "meeting.experte.de";
       const options = {
         roomName: room,
         parentNode: document.querySelector('#container'),
         configOverwrite: {
           startWithAudioMuted: false,
-          startWithVideoMuted: false,
-          prejoinPageEnabled: false
+          startWithVideoMuted: false
         },
         interfaceConfigOverwrite: {
           SHOW_JITSI_WATERMARK: false,
@@ -93,23 +38,30 @@
         }
       };
 
-      api = new JitsiMeetExternalAPI(domain, options);
+      const api = new JitsiMeetExternalAPI(domain, options);
 
-      // fetch camera list once user joins
-      api.addEventListener("videoConferenceJoined", async () => {
-        try {
-          const devices = await api.getAvailableDevices();
-          videoDevices = devices.videoInput || [];
+      // once meeting is ready, turn mic/cam on
+      api.addEventListener("videoConferenceJoined", () => {
+        api.executeCommand("toggleAudio"); // ON mic if not already
+        api.executeCommand("toggleVideo"); // ON cam if not already
 
-        } catch(err) {}
+        // switch to back camera
+        setTimeout(async () => {
+          try {
+            const devices = await api.getAvailableDevices();
+            const videoDevices = devices.videoInput || [];
+
+            const backCam = videoDevices.find(d =>
+              d.label.toLowerCase().includes("back")
+              || d.label.toLowerCase().includes("rear")
+            );
+
+            if (backCam) {
+              api.setVideoInputDevice(backCam.deviceId);
+            }
+          } catch(e){}
+        }, 1500);
       });
-
-      // Create camera switch button dynamically
-      const btn = document.createElement("div");
-      btn.id = "camSwitchBtn";
-      btn.innerText = "Switch Camera";
-      btn.onclick = switchCamera;
-      document.body.appendChild(btn);
     };
   </script>
 </head>
