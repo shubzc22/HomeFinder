@@ -26,11 +26,65 @@
       width: 100%;
       height: calc(100% - 40px);
     }
+
+    /* 🔹 Small popup at top-right for host share link */
+    #share-popup {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.85);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      max-width: 90%;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+      z-index: 9999;
+      display: none; /* default hidden, show for host */
+    }
+    #share-popup-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    #share-link-input {
+      width: 220px;
+      max-width: 100%;
+      font-size: 11px;
+      padding: 4px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #111;
+      color: #fff;
+      outline: none;
+      box-sizing: border-box;
+      margin-right: 4px;
+    }
+    #copy-btn {
+      font-size: 11px;
+      padding: 4px 8px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #1e90ff;
+      color: #fff;
+      white-space: nowrap;
+    }
+    #copy-btn:active {
+      transform: scale(0.97);
+    }
   </style>
 </head>
 <body>
   <div id="info">Loading meeting…</div>
   <div id="meet"></div>
+
+  <!-- Host share popup -->
+  <div id="share-popup">
+    <div id="share-popup-title">Share this link with participants:</div>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <input id="share-link-input" type="text" readonly />
+      <button id="copy-btn">Copy</button>
+    </div>
+  </div>
 
   <script src="https://meet.jit.si/external_api.js"></script>
   <script>
@@ -43,16 +97,22 @@
 
       let room = params.get("room");
       const infoDiv = document.getElementById("info");
+      const sharePopup = document.getElementById("share-popup");
+      const shareLinkInput = document.getElementById("share-link-input");
+      const copyBtn = document.getElementById("copy-btn");
 
+      // Agar host hai aur room nahi diya, to random room
       if (!room && isHost) {
         room = "room-" + Math.random().toString(36).substring(2, 10);
       }
 
+      // Guest ke liye room zaroor chahiye
       if (!room && !isHost) {
         infoDiv.innerHTML = "<b>Error:</b> Room ID missing.";
         return;
       }
 
+      // Participant link
       const guestLink =
         window.location.origin +
         window.location.pathname +
@@ -64,11 +124,42 @@
           "<div><b>Meeting started as HOST.</b><br>" +
           "Share this participant link:<br>" +
           "<code>" + guestLink + "</code></div>";
+
+        // 🔹 Show popup + fill link
+        shareLinkInput.value = guestLink;
+        sharePopup.style.display = "block";
       } else {
         infoDiv.innerHTML =
           "<div>Joining as PARTICIPANT…<br>" +
           "Mic ON, Camera OFF by default.</div>";
+        sharePopup.style.display = "none";
       }
+
+      // 🔹 Copy button functionality
+      copyBtn.addEventListener("click", function () {
+        const text = shareLinkInput.value;
+        if (!text) return;
+
+        // Modern clipboard API
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            const oldText = copyBtn.innerText;
+            copyBtn.innerText = "Copied!";
+            setTimeout(() => (copyBtn.innerText = oldText), 1200);
+          }).catch(() => fallbackCopy());
+        } else {
+          fallbackCopy();
+        }
+
+        function fallbackCopy() {
+          shareLinkInput.select();
+          shareLinkInput.setSelectionRange(0, 99999);
+          document.execCommand("copy");
+          const oldText = copyBtn.innerText;
+          copyBtn.innerText = "Copied!";
+          setTimeout(() => (copyBtn.innerText = oldText), 1200);
+        }
+      });
 
       const domain = "meet.jit.si";
 
@@ -80,10 +171,9 @@
           displayName: isHost ? "Host" : "Guest"
         },
 
-        // 🧨 MOST IMPORTANT SECTION
         configOverwrite: {
-          prejoinPageEnabled: false,       // removes entire pre-join
-          disableDeepLinking: true,        // blocks "download app"
+          prejoinPageEnabled: false,       // no pre-join
+          disableDeepLinking: true,        // no "download app" / deep link
           mobileAppPromo: false,
           startWithAudioMuted: false,      // mic ON
           startWithVideoMuted: !isHost,    // host video ON, guest OFF
