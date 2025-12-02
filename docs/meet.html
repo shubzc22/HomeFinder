@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Instant Meeting (No Name, No Login)</title>
+  <title>Instant Meeting (No Prompt)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     html, body {
@@ -32,32 +32,27 @@
   <div id="info">Loading meeting…</div>
   <div id="meet"></div>
 
-  <!-- Jitsi external API -->
   <script src="https://meet.jit.si/external_api.js"></script>
   <script>
     (function () {
       const url = new URL(window.location.href);
       const params = url.searchParams;
 
-      // role = host / guest
       let role = params.get("role") || "host";
-      const isHost = role !== "guest"; // default host
+      const isHost = role !== "guest";
 
       let room = params.get("room");
       const infoDiv = document.getElementById("info");
 
-      // Agar host hai aur room nahi diya, to naya random room bana do
       if (!room && isHost) {
         room = "room-" + Math.random().toString(36).substring(2, 10);
       }
 
-      // Participant (guest) ke liye room zaroor chahiye
       if (!room && !isHost) {
-        infoDiv.innerHTML = "<b>Error:</b> Room ID missing. Ask host for correct meeting link.";
+        infoDiv.innerHTML = "<b>Error:</b> Room ID missing.";
         return;
       }
 
-      // Guest link banao (host share karega)
       const guestLink =
         window.location.origin +
         window.location.pathname +
@@ -67,12 +62,12 @@
       if (isHost) {
         infoDiv.innerHTML =
           "<div><b>Meeting started as HOST.</b><br>" +
-          "Ye link participants ko bhejo (mic ON, camera OFF):<br>" +
+          "Share this participant link:<br>" +
           "<code>" + guestLink + "</code></div>";
       } else {
         infoDiv.innerHTML =
           "<div>Joining as PARTICIPANT…<br>" +
-          "Aapka <b>mic ON</b> hoga, <b>camera OFF</b> rahega by default.</div>";
+          "Mic ON, Camera OFF by default.</div>";
       }
 
       const domain = "meet.jit.si";
@@ -80,37 +75,48 @@
       const options = {
         roomName: room,
         parentNode: document.getElementById("meet"),
+
         userInfo: {
           displayName: isHost ? "Host" : "Guest"
         },
+
+        // 🧨 MOST IMPORTANT SECTION
         configOverwrite: {
-          // sabse important: prejoin / name dialog bandh
-          prejoinPageEnabled: false,
+          prejoinPageEnabled: false,       // removes entire pre-join
+          disableDeepLinking: true,        // blocks "download app"
+          mobileAppPromo: false,
+          startWithAudioMuted: false,      // mic ON
+          startWithVideoMuted: !isHost,    // host video ON, guest OFF
 
-          // Mic / camera defaults
-          startWithAudioMuted: false,          // dono ke liye mic ON
-          startWithVideoMuted: !isHost,        // host = video ON, guest = video OFF
+          constraints: isHost
+            ? { video: { facingMode: "environment" } }
+            : {},
 
-          // Mobile pe back camera prefer karo (environment = rear)
-          constraints: isHost ? {
-            video: {
-              facingMode: "environment"
-            }
-          } : {}
+          deeplinking: {
+            disabled: true,
+            skipNativePrompt: true,
+          }
+        },
+
+        interfaceConfigOverwrite: {
+          PREJOIN_PAGE_ENABLED: false,
+          MOBILE_APP_PROMO: false,
+          SHOW_JITSI_WATERMARK: false,
+          SHOW_BRAND_WATERMARK: false,
+          SHOW_POWERED_BY: false,
         }
       };
 
       try {
         const api = new JitsiMeetExternalAPI(domain, options);
 
-        // Optional: full-screen type layout ke liye kuch basic tweaks
         api.addListener("videoConferenceJoined", () => {
           console.log("Joined:", room, "as", isHost ? "HOST" : "GUEST");
         });
 
       } catch (e) {
         console.error("Jitsi init error", e);
-        infoDiv.innerHTML = "<b>Error:</b> Could not load meeting. Check console.";
+        infoDiv.innerHTML = "<b>Error:</b> Could not load meeting.";
       }
     })();
   </script>
