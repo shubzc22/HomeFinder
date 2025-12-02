@@ -106,12 +106,12 @@
       const copyBtn = document.getElementById("copy-btn");
       const newMeetBtn = document.getElementById("newmeet-btn");
 
-      // New Room for Host if none
+      // Host ke liye random room agar nahi diya
       if (!room && isHost) {
         room = "room-" + Math.random().toString(36).substring(2, 10);
       }
 
-      // Guest must have room
+      // Guest ke liye room zaroori
       if (!room && !isHost) return;
 
       const guestLink =
@@ -125,7 +125,7 @@
         sharePopup.style.display = "block";
       }
 
-      // Copy
+      // Copy button
       copyBtn.addEventListener("click", () => {
         const text = shareLinkInput.value;
         if (!text) return;
@@ -196,8 +196,21 @@
       try {
         const api = new JitsiMeetExternalAPI(domain, options);
 
-        // ✅ Call end hone par redirect
+        // ✅ Sirf jab user hangup button dabaye tabhi redirect karna
+        let shouldRedirectOnClose = false;
+
+        api.addListener("toolbarButtonClicked", (event) => {
+          if (event.key === "hangup") {
+            shouldRedirectOnClose = true;
+          }
+        });
+
         function handleCallEnd() {
+          if (!shouldRedirectOnClose) {
+            // e.g. host login, internal close, refresh etc. -> no redirect
+            return;
+          }
+
           if (isHost) {
             // Host -> abc.com
             window.location.href = "https://abc.com";
