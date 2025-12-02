@@ -196,27 +196,12 @@
       try {
         const api = new JitsiMeetExternalAPI(domain, options);
 
-        // ✅ Sirf jab user hangup button dabaye tabhi redirect karna
-        let shouldRedirectOnClose = false;
-
-        api.addListener("toolbarButtonClicked", (event) => {
-          if (event.key === "hangup") {
-            shouldRedirectOnClose = true;
-          }
-        });
-
+        // ✅ Call end hone par redirect — host vs guest alag
         function handleCallEnd() {
-          if (!shouldRedirectOnClose) {
-            // e.g. host login, internal close, refresh etc. -> no redirect
-            return;
-          }
-
           if (isHost) {
-            // Host -> abc.com
-            window.location.href = "https://abc.com";
+            window.location.href = "https://abc.com";   // yahan apna host URL
           } else {
-            // Guest -> xyz.com
-            window.location.href = "https://xyz.com";
+            window.location.href = "https://xyz.com";   // yahan guest ka URL
           }
         }
 
