@@ -81,10 +81,10 @@
     <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
       <input id="share-link-input" type="text" readonly />
 
-      <!-- 🟦 Copy button -->
+      <!-- Copy button -->
       <button id="copy-btn" class="popup-btn">Copy</button>
 
-      <!-- 🟨 New Meet button -->
+      <!-- New Meet button -->
       <button id="newmeet-btn" class="popup-btn">New Meet</button>
     </div>
 
@@ -127,16 +127,31 @@
 
       // Copy
       copyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(shareLinkInput.value).then(() => {
+        const text = shareLinkInput.value;
+        if (!text) return;
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            const old = copyBtn.innerText;
+            copyBtn.innerText = "Copied!";
+            setTimeout(() => (copyBtn.innerText = old), 1200);
+          }).catch(fallbackCopy);
+        } else {
+          fallbackCopy();
+        }
+
+        function fallbackCopy() {
+          shareLinkInput.select();
+          shareLinkInput.setSelectionRange(0, 99999);
+          document.execCommand("copy");
           const old = copyBtn.innerText;
           copyBtn.innerText = "Copied!";
           setTimeout(() => (copyBtn.innerText = old), 1200);
-        });
+        }
       });
 
-      // 🆕 NEW MEET BUTTON CLICK
+      // NEW MEET BUTTON CLICK
       newMeetBtn.addEventListener("click", () => {
-        // Hard Refresh + force new random room
         window.location.href =
           window.location.origin +
           window.location.pathname +
@@ -180,6 +195,16 @@
 
       try {
         const api = new JitsiMeetExternalAPI(domain, options);
+
+        // ✅ Call cut / hangup / close hone par redirect
+        api.addListener("readyToClose", () => {
+          window.location.href = "https://abc.com";
+        });
+
+        api.addListener("videoConferenceLeft", () => {
+          window.location.href = "https://abc.com";
+        });
+
       } catch (e) {
         console.error(e);
       }
