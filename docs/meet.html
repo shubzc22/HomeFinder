@@ -15,7 +15,7 @@
       color: #fff;
     }
 
-    /* info div removed */
+    /* info div hidden */
     #info {
       display: none;
     }
@@ -25,11 +25,12 @@
       height: 100%;
     }
 
-    /* 🔹 popup */
+    /* 🔹 popup – top center */
     #share-popup {
       position: fixed;
       top: 10px;
-      right: 10px;
+      left: 50%;
+      transform: translateX(-50%);
       background: rgba(0, 0, 0, 0.85);
       border-radius: 8px;
       padding: 8px 10px;
@@ -42,9 +43,10 @@
     #share-popup-title {
       font-weight: 600;
       margin-bottom: 4px;
+      text-align: left;
     }
     #share-link-input {
-      width: 220px;
+      width: 240px;
       max-width: 100%;
       font-size: 11px;
       padding: 4px;
@@ -101,10 +103,12 @@
       const shareLinkInput = document.getElementById("share-link-input");
       const copyBtn = document.getElementById("copy-btn");
 
+      // Host ke liye random room agar nahi diya
       if (!room && isHost) {
         room = "room-" + Math.random().toString(36).substring(2, 10);
       }
 
+      // Guest ke liye room zaroori
       if (!room && !isHost) return;
 
       const guestLink =
@@ -118,12 +122,29 @@
         sharePopup.style.display = "block";
       }
 
+      // Copy button
       copyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(shareLinkInput.value).then(() => {
+        const text = shareLinkInput.value;
+        if (!text) return;
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            const old = copyBtn.innerText;
+            copyBtn.innerText = "Copied!";
+            setTimeout(() => copyBtn.innerText = old, 1200);
+          }).catch(fallbackCopy);
+        } else {
+          fallbackCopy();
+        }
+
+        function fallbackCopy() {
+          shareLinkInput.select();
+          shareLinkInput.setSelectionRange(0, 99999);
+          document.execCommand("copy");
           const old = copyBtn.innerText;
           copyBtn.innerText = "Copied!";
           setTimeout(() => copyBtn.innerText = old, 1200);
-        });
+        }
       });
 
       const domain = "meet.jit.si";
