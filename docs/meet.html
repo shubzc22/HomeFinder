@@ -182,7 +182,15 @@
           deeplinking: {
             disabled: true,
             skipNativePrompt: true,
-          }
+          },
+
+          // 🔑 Hangup click ko API pe expose karo
+          buttonsWithNotifyClick: [
+            {
+              key: 'hangup',
+              preventExecution: false // button ka normal kaam bhi chalega
+            }
+          ]
         },
         interfaceConfigOverwrite: {
           PREJOIN_PAGE_ENABLED: false,
@@ -196,12 +204,27 @@
       try {
         const api = new JitsiMeetExternalAPI(domain, options);
 
-        // ✅ Call end hone par redirect — host vs guest alag
+        // ✅ Sirf hangup dabane ke baad wale close pe hi redirect karna
+        let shouldRedirectOnClose = false;
+
+        api.addListener("toolbarButtonClicked", (event) => {
+          if (event.key === "hangup") {
+            shouldRedirectOnClose = true;
+          }
+        });
+
         function handleCallEnd() {
+          if (!shouldRedirectOnClose) {
+            // e.g. login flow / internal close / error → redirect mat karo
+            return;
+          }
+
           if (isHost) {
-            window.location.href = "https://abc.com";   // yahan apna host URL
+            // Host -> abc.com
+            window.location.href = "https://abc.com";
           } else {
-            window.location.href = "https://xyz.com";   // yahan guest ka URL
+            // Guest -> xyz.com
+            window.location.href = "https://xyz.com";
           }
         }
 
