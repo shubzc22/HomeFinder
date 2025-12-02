@@ -15,17 +15,14 @@
       color: #fff;
     }
 
-    /* info div hidden */
-    #info {
-      display: none;
-    }
+    #info { display: none; }
 
     #meet {
       width: 100%;
       height: 100%;
     }
 
-    /* 🔹 popup – top center */
+    /* popup centered */
     #share-popup {
       position: fixed;
       top: 10px;
@@ -43,7 +40,6 @@
     #share-popup-title {
       font-weight: 600;
       margin-bottom: 4px;
-      text-align: left;
     }
     #share-link-input {
       width: 240px;
@@ -58,7 +54,7 @@
       box-sizing: border-box;
       margin-right: 4px;
     }
-    #copy-btn {
+    .popup-btn {
       font-size: 11px;
       padding: 4px 8px;
       border: none;
@@ -68,24 +64,30 @@
       color: #fff;
       white-space: nowrap;
     }
-    #copy-btn:active {
+    .popup-btn:active {
       transform: scale(0.97);
     }
   </style>
 </head>
 <body>
-  <!-- Hidden info -->
-  <div id="info"></div>
 
+  <div id="info"></div>
   <div id="meet"></div>
 
-  <!-- Host popup -->
+  <!-- popup -->
   <div id="share-popup">
     <div id="share-popup-title">Share this link:</div>
-    <div style="display:flex;align-items:center;gap:4px;">
+
+    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
       <input id="share-link-input" type="text" readonly />
-      <button id="copy-btn">Copy</button>
+
+      <!-- 🟦 Copy button -->
+      <button id="copy-btn" class="popup-btn">Copy</button>
+
+      <!-- 🟨 New Meet button -->
+      <button id="newmeet-btn" class="popup-btn">New Meet</button>
     </div>
+
   </div>
 
   <script src="https://meet.jit.si/external_api.js"></script>
@@ -102,13 +104,14 @@
       const sharePopup = document.getElementById("share-popup");
       const shareLinkInput = document.getElementById("share-link-input");
       const copyBtn = document.getElementById("copy-btn");
+      const newMeetBtn = document.getElementById("newmeet-btn");
 
-      // Host ke liye random room agar nahi diya
+      // New Room for Host if none
       if (!room && isHost) {
         room = "room-" + Math.random().toString(36).substring(2, 10);
       }
 
-      // Guest ke liye room zaroori
+      // Guest must have room
       if (!room && !isHost) return;
 
       const guestLink =
@@ -122,29 +125,24 @@
         sharePopup.style.display = "block";
       }
 
-      // Copy button
+      // Copy
       copyBtn.addEventListener("click", () => {
-        const text = shareLinkInput.value;
-        if (!text) return;
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(() => {
-            const old = copyBtn.innerText;
-            copyBtn.innerText = "Copied!";
-            setTimeout(() => copyBtn.innerText = old, 1200);
-          }).catch(fallbackCopy);
-        } else {
-          fallbackCopy();
-        }
-
-        function fallbackCopy() {
-          shareLinkInput.select();
-          shareLinkInput.setSelectionRange(0, 99999);
-          document.execCommand("copy");
+        navigator.clipboard.writeText(shareLinkInput.value).then(() => {
           const old = copyBtn.innerText;
           copyBtn.innerText = "Copied!";
-          setTimeout(() => copyBtn.innerText = old, 1200);
-        }
+          setTimeout(() => (copyBtn.innerText = old), 1200);
+        });
+      });
+
+      // 🆕 NEW MEET BUTTON CLICK
+      newMeetBtn.addEventListener("click", () => {
+        // Hard Refresh + force new random room
+        window.location.href =
+          window.location.origin +
+          window.location.pathname +
+          "?room=new-" +
+          Math.random().toString(36).substring(2, 10) +
+          "&role=host";
       });
 
       const domain = "meet.jit.si";
@@ -152,11 +150,9 @@
       const options = {
         roomName: room,
         parentNode: document.getElementById("meet"),
-
         userInfo: {
           displayName: isHost ? "Host" : "Guest"
         },
-
         configOverwrite: {
           prejoinPageEnabled: false,
           disableDeepLinking: true,
@@ -173,7 +169,6 @@
             skipNativePrompt: true,
           }
         },
-
         interfaceConfigOverwrite: {
           PREJOIN_PAGE_ENABLED: false,
           MOBILE_APP_PROMO: false,
