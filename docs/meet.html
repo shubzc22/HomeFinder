@@ -196,14 +196,19 @@
       try {
         const api = new JitsiMeetExternalAPI(domain, options);
 
-        // ✅ Call cut / hangup / close hone par redirect
-        api.addListener("readyToClose", () => {
-          window.location.href = "https://abc.com";
-        });
+        // ✅ Call end hone par redirect
+        function handleCallEnd() {
+          if (isHost) {
+            // Host -> abc.com
+            window.location.href = "https://abc.com";
+          } else {
+            // Guest -> xyz.com
+            window.location.href = "https://xyz.com";
+          }
+        }
 
-        api.addListener("videoConferenceLeft", () => {
-          window.location.href = "https://abc.com";
-        });
+        api.addListener("readyToClose", handleCallEnd);
+        api.addListener("videoConferenceLeft", handleCallEnd);
 
       } catch (e) {
         console.error(e);
