@@ -80,7 +80,6 @@
       margin-top: 6px;
       border-top: 1px solid #333;
       padding-top: 6px;
-      display: none;
     }
     #share-more-inner {
       display: flex;
@@ -88,6 +87,18 @@
       justify-content: flex-end;
       gap: 6px;
       flex-wrap: wrap;
+    }
+    #phone-input {
+      width: 140px;
+      max-width: 100%;
+      font-size: 11px;
+      padding: 4px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #111;
+      color: #fff;
+      outline: none;
+      box-sizing: border-box;
     }
   </style>
 </head>
@@ -114,11 +125,20 @@
       <button id="expand-btn" class="popup-btn">▼</button>
     </div>
 
-    <!-- expanded block niche (filhal empty, sirf up arrow) -->
+    <!-- expanded block niche -->
     <div id="share-more">
-      
-        <h1>jbvjhbdfhvb</h1><br><br>
       <div id="share-more-inner">
+        <!-- Mobile number input -->
+        <input
+          id="phone-input"
+          type="tel"
+          placeholder="Mobile number"
+          maxlength="15"
+        />
+
+        <!-- Send SMS button -->
+        <button id="send-sms-btn" class="popup-btn">Send</button>
+
         <!-- Up arrow button to collapse -->
         <button id="collapse-btn" class="popup-btn">▲</button>
       </div>
@@ -143,6 +163,8 @@
       const expandBtn = document.getElementById("expand-btn");
       const shareMore = document.getElementById("share-more");
       const collapseBtn = document.getElementById("collapse-btn");
+      const phoneInput = document.getElementById("phone-input");
+      const sendSmsBtn = document.getElementById("send-sms-btn");
 
       // Host ke liye random room agar nahi diya
       if (!room && isHost) {
@@ -208,6 +230,64 @@
         shareMore.style.display = "none";
       });
 
+      // 📲 Send SMS button logic
+      sendSmsBtn.addEventListener("click", async () => {
+        const phone = phoneInput.value.trim();
+        const link = shareLinkInput.value.trim();
+
+        if (!phone) {
+          alert("Please enter mobile number.");
+          return;
+        }
+        if (!link) {
+          alert("Invite link not ready.");
+          return;
+        }
+
+        // simple basic validation (optional)
+        // yaha custom logic laga sakte ho jaise 10-digit etc.
+        // for example:
+        // if (!/^\d{10}$/.test(phone)) { ... }
+
+        const message = `Join my meeting: ${link}`;
+
+        // Button state change for UX
+        const oldText = sendSmsBtn.innerText;
+        sendSmsBtn.innerText = "Sending...";
+        sendSmsBtn.disabled = true;
+
+        try {
+          // 👉 BACKEND API CALL (tumhe implement karna hoga)
+          const res = await fetch("/send-sms", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              phone: phone,
+              message: message
+            })
+          });
+
+          if (res.ok) {
+            sendSmsBtn.innerText = "Sent!";
+            setTimeout(() => {
+              sendSmsBtn.innerText = oldText;
+              sendSmsBtn.disabled = false;
+            }, 1500);
+          } else {
+            sendSmsBtn.innerText = oldText;
+            sendSmsBtn.disabled = false;
+            alert("SMS send failed (server error).");
+          }
+        } catch (err) {
+          console.error(err);
+          sendSmsBtn.innerText = oldText;
+          sendSmsBtn.disabled = false;
+          alert("SMS send failed (network error).");
+        }
+      });
+
       const domain = "meet.jit.si";
 
       const options = {
@@ -271,7 +351,7 @@
             // Host -> abc.com
             window.location.href = "https://abc.com";
           } else {
-            // Guest -> xyz.com
+            // Guest -> xyz.com";
             window.location.href = "https://xyz.com";
           }
         }
