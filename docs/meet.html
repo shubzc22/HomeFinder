@@ -41,6 +41,12 @@
       font-weight: 600;
       margin-bottom: 4px;
     }
+    #share-main-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
     #share-link-input {
       width: 240px;
       max-width: 100%;
@@ -67,6 +73,22 @@
     .popup-btn:active {
       transform: scale(0.97);
     }
+
+    /* Expanded block niche wala */
+    #share-more {
+      display: none;            /* default band */
+      margin-top: 6px;
+      border-top: 1px solid #333;
+      padding-top: 6px;
+      display: none;
+    }
+    #share-more-inner {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
 <body>
@@ -78,7 +100,8 @@
   <div id="share-popup">
     <div id="share-popup-title">Share this link:</div>
 
-    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+    <!-- main row: input + Copy + New Meet + down arrow -->
+    <div id="share-main-row">
       <input id="share-link-input" type="text" readonly />
 
       <!-- Copy button -->
@@ -86,8 +109,18 @@
 
       <!-- New Meet button -->
       <button id="newmeet-btn" class="popup-btn">New Meet</button>
+
+      <!-- Down arrow button -->
+      <button id="expand-btn" class="popup-btn">▼</button>
     </div>
 
+    <!-- expanded block niche (filhal empty, sirf up arrow) -->
+    <div id="share-more">
+      <div id="share-more-inner">
+        <!-- Up arrow button to collapse -->
+        <button id="collapse-btn" class="popup-btn">▲</button>
+      </div>
+    </div>
   </div>
 
   <script src="https://meet.jit.si/external_api.js"></script>
@@ -105,6 +138,9 @@
       const shareLinkInput = document.getElementById("share-link-input");
       const copyBtn = document.getElementById("copy-btn");
       const newMeetBtn = document.getElementById("newmeet-btn");
+      const expandBtn = document.getElementById("expand-btn");
+      const shareMore = document.getElementById("share-more");
+      const collapseBtn = document.getElementById("collapse-btn");
 
       // Host ke liye random room agar nahi diya
       if (!room && isHost) {
@@ -160,6 +196,16 @@
           "&role=host";
       });
 
+      // ▼ Expand button -> niche block show
+      expandBtn.addEventListener("click", () => {
+        shareMore.style.display = "block";
+      });
+
+      // ▲ Collapse button -> niche block hide
+      collapseBtn.addEventListener("click", () => {
+        shareMore.style.display = "none";
+      });
+
       const domain = "meet.jit.si";
 
       const options = {
@@ -184,11 +230,11 @@
             skipNativePrompt: true,
           },
 
-          // 🔑 Hangup click ko API pe expose karo
+          // Hangup click ko API pe expose karein
           buttonsWithNotifyClick: [
             {
               key: 'hangup',
-              preventExecution: false // button ka normal kaam bhi chalega
+              preventExecution: false
             }
           ]
         },
@@ -221,10 +267,10 @@
 
           if (isHost) {
             // Host -> abc.com
-            window.location.href = "https://nirasm.com/";
+            window.location.href = "https://abc.com";
           } else {
             // Guest -> xyz.com
-            window.location.href = "https://nirapay.in/";
+            window.location.href = "https://xyz.com";
           }
         }
 
