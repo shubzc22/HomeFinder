@@ -5,6 +5,29 @@
   <title>Instant Meeting (No Prompt)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
 
+  <style>
+  #notifications-container {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+</style>
+
+<script>
+  const hideNotif = () => {
+    const el = document.getElementById("notifications-container");
+    if (el) {
+      el.style.display = "none";
+      el.style.visibility = "hidden";
+      el.style.opacity = "0";
+    }
+  };
+
+  hideNotif(); // page loaded
+
+  const observer = new MutationObserver(hideNotif);
+  observer.observe(document.body, { childList: true, subtree: true });
+</script>
 
 <script>
 setInterval(() => {
