@@ -5,36 +5,60 @@
   <title>Instant Meeting (No Prompt)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
 
-  <style>
-  #notifications-container {
+
+<style>
+  /* Jitna ho sake utna strong selector */
+  #notifications-container,
+  div#notifications-container,
+  .css-gckfkq-container#notifications-container,
+  .css-gckfkq-container {
     display: none !important;
-    visibility: hidden !important;
     opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
   }
 </style>
 
 <script>
-  const hideNotif = () => {
-    const el = document.getElementById("notifications-container");
-    if (el) {
-      el.style.display = "none";
-      el.style.visibility = "hidden";
-      el.style.opacity = "0";
+  (function () {
+    function hideNotifications() {
+      const els = document.querySelectorAll(
+        '#notifications-container, .css-gckfkq-container'
+      );
+      els.forEach(el => {
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('opacity', '0', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('pointerEvents', 'none', 'important');
+        el.style.setProperty('maxHeight', '0', 'important');
+        el.style.setProperty('overflow', 'hidden', 'important');
+      });
     }
-  };
 
-  hideNotif(); // page loaded
+    // 1️⃣ Page load par try karo
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', hideNotifications);
+    } else {
+      hideNotifications();
+    }
 
-  const observer = new MutationObserver(hideNotif);
-  observer.observe(document.body, { childList: true, subtree: true });
+    // 2️⃣ Jab bhi DOM me kuchh naya add ho
+    const observer = new MutationObserver(hideNotifications);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+
+    // 3️⃣ Backup: har 1 second me check
+    setInterval(hideNotifications, 1000);
+  })();
 </script>
 
-<script>
-setInterval(() => {
-  const el = document.getElementById("notifications-container");
-  if (el) el.remove();
-}, 500);
-</script>
+
+  
+
 
   
   <style>
