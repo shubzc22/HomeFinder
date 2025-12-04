@@ -4,6 +4,16 @@
   <meta charset="utf-8" />
   <title>Instant Meeting (No Prompt)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+
+<script>
+setInterval(() => {
+  const el = document.getElementById("notifications-container");
+  if (el) el.remove();
+}, 500);
+</script>
+
+  
   <style>
     html, body {
       margin: 0;
